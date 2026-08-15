@@ -1,0 +1,70 @@
+schema = 1
+default = "check"
+
+[execution]
+jobs = 4
+default_timeout = "20m"
+repository_state = "preserve"
+
+[tasks.guardrails]
+description = "Enforce fail-closed repository source rules."
+run = ["scripts/guardrails.py"]
+tools = ["python3"]
+inputs = ["scripts/guardrails.py"]
+
+[tasks.zrail]
+description = "Enforce the reviewed architecture policy."
+run = ["zrail", "check"]
+tools = ["zrail"]
+inputs = ["zrail.toml", "zrail.lock"]
+
+[tasks.git-diff]
+description = "Reject whitespace errors in unstaged changes."
+run = ["git", "diff", "--check"]
+tools = ["git"]
+
+[tasks.git-diff-cached]
+description = "Reject whitespace errors in staged changes."
+run = ["git", "diff", "--cached", "--check"]
+tools = ["git"]
+
+[tasks.architecture]
+description = "Validate source shape, architecture policy, and diff hygiene."
+needs = ["guardrails", "zrail", "git-diff", "git-diff-cached"]
+
+[tasks.format]
+description = "Validate Rust formatting."
+run = ["cargo", "fmt", "--all", "--", "--check"]
+tools = ["cargo"]
+resources = ["cargo-target"]
+
+[tasks.clippy]
+description = "Run Clippy with warnings denied."
+run = ["cargo", "clippy", "--workspace", "--all-targets", "--all-features", "--locked", "--offline", "--", "-D", "warnings"]
+tools = ["cargo"]
+resources = ["cargo-target"]
+
+[tasks.docs]
+description = "Build workspace documentation with warnings denied."
+run = ["cargo", "doc", "--workspace", "--all-features", "--no-deps", "--locked", "--offline"]
+env = { RUSTDOCFLAGS = "-D warnings" }
+tools = ["cargo"]
+resources = ["cargo-target"]
+
+[tasks.rust-lint]
+description = "Validate formatting, lints, and documentation."
+needs = ["format", "clippy", "docs"]
+
+[tasks.test]
+description = "Run the complete workspace test suite."
+run = ["cargo", "test", "--workspace", "--all-features", "--locked", "--offline"]
+tools = ["cargo"]
+resources = ["cargo-target"]
+
+[tasks.rust-test]
+description = "Validate runtime and behavioral contracts."
+needs = ["test"]
+
+[tasks.check]
+description = "Run complete local Bornera qualification."
+needs = ["architecture", "rust-lint", "rust-test"]
