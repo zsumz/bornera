@@ -1,0 +1,23 @@
+[package]
+name = "bornera"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic connection ownership for native protocol clients."
+keywords = ["networking", "protocol", "connection", "deterministic"]
+categories = ["network-programming"]
+
+[dependencies]
+bytes.workspace = true
+calandria = { workspace = true, features = ["std"] }
+calandria-mio.workspace = true
+bornera-core.workspace = true
+mio.workspace = true
+
+[lints]
+workspace = true

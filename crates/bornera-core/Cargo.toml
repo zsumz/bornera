@@ -1,0 +1,23 @@
+[package]
+name = "bornera-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic sans-I/O connection policy for native protocol clients."
+keywords = ["networking", "protocol", "connection", "deterministic"]
+categories = ["network-programming"]
+
+[dependencies]
+calandria.workspace = true
+
+[[bench]]
+name = "write_progress"
+harness = false
+
+[lints]
+workspace = true

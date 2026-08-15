@@ -1,0 +1,17 @@
+[package]
+name = "bornera-sim"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Deterministic network simulation for Bornera connection policies."
+keywords = ["networking", "simulation", "testing", "deterministic"]
+categories = ["development-tools::testing", "network-programming"]
+
+[lints]
+workspace = true
