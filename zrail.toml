@@ -1,0 +1,172 @@
+schema = 1
+adapters = ["rust"]
+
+[repository]
+roots = ["crates/bornera", "crates/bornera-core", "crates/bornera-sim"]
+exclude = []
+workspace_members = "exact"
+nested_git = "deny"
+submodules = "deny"
+symlinks = "inside"
+
+[dependencies]
+mode = "locked"
+unassigned_packages = "deny"
+cycles = "deny"
+
+[[dependencies.crate_root]]
+package = "calandria-mio"
+root = "calandria_mio"
+reason = "The published calandria-mio package exposes the calandria_mio library root."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.0.1-rc.1"
+
+[[dependencies.crate_root]]
+package = "mio"
+root = "mio"
+reason = "The published Mio package exposes the mio library root used for private TCP sources."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "1.2.2"
+
+[source.rust]
+module_docs = "required"
+facades = "declarative"
+entrypoints = "declarative"
+tests = "sibling"
+
+[source.rust.macros]
+mode = "deny-unreviewed"
+
+[[source.rust.macros.allow]]
+name = "Clone"
+reason = "Owned data-only values use Rust's built-in Clone derive."
+
+[[source.rust.macros.allow]]
+name = "Copy"
+reason = "Fixed-width identities and snapshots use Rust's built-in Copy derive."
+
+[[source.rust.macros.allow]]
+name = "Debug"
+reason = "Public policy values expose deterministic diagnostic formatting."
+
+[[source.rust.macros.allow]]
+name = "Eq"
+reason = "Deterministic policy values use exact equality."
+
+[[source.rust.macros.allow]]
+name = "Hash"
+reason = "Domain identities support identity-keyed bounded owners."
+
+[[source.rust.macros.allow]]
+name = "Ord"
+reason = "Fixed-width identities expose total ordering without cross-domain conversion."
+
+[[source.rust.macros.allow]]
+name = "PartialEq"
+reason = "Public policy values and tests use exact comparison."
+
+[[source.rust.macros.allow]]
+name = "PartialOrd"
+reason = "Fixed-width identities expose partial ordering within one domain."
+
+[[source.rust.macros.allow]]
+name = "assert"
+reason = "Focused integration tests assert deterministic transition predicates."
+
+[[source.rust.macros.allow]]
+name = "assert_eq"
+reason = "Focused integration tests compare deterministic values and effects."
+
+[[source.rust.macros.allow]]
+name = "matches"
+reason = "State transitions and tests use Rust's standard pattern predicate."
+
+[source.rust.hygiene]
+unsafe = "deny"
+lint_suppressions = "deny"
+deny_methods = ["unwrap", "expect"]
+deny_macros = ["panic", "todo", "unimplemented", "unreachable", "dbg"]
+
+[source.rust.size.facade]
+target = 80
+hard = 120
+
+[source.rust.size.implementation]
+target = 240
+hard = 300
+
+[source.rust.size.test]
+target = 300
+hard = 300
+
+[source.rust.size.auxiliary]
+target = 300
+hard = 300
+
+[[layer]]
+name = "core"
+packages = ["bornera-core"]
+may_depend_on = []
+reason = "Deterministic connection policy remains below production and simulation adapters."
+
+[layer.dependencies]
+external = "locked"
+
+[[layer]]
+name = "production"
+packages = ["bornera"]
+may_depend_on = ["core"]
+reason = "The native duty interprets deterministic core policy through Calandria and private Mio capabilities."
+
+[layer.dependencies]
+external = "locked"
+
+[[layer]]
+name = "simulation"
+packages = ["bornera-sim"]
+may_depend_on = []
+reason = "Simulation begins dependency-free; its core edge is granted with the first consuming code."
+
+[layer.dependencies]
+external = "locked"
+
+[[dependency]]
+name = "core-does-not-depend-outward"
+from = "bornera-core"
+deny = ["bornera", "bornera-sim"]
+reason = "The deterministic core cannot depend on either adapter package."
+
+[[scope]]
+name = "core-sans-io-protocol-neutral"
+include = ["crates/bornera-core/src/**"]
+reason = "Core owns data-only connection policy without transport acquisition or protocol meaning."
+
+[scope.symbols]
+deny = [
+  "calandria_mio",
+  "mio",
+  "tokio",
+  "std::net",
+  "std::process",
+  "std::sync::Mutex",
+  "std::sync::RwLock",
+  "std::thread",
+]
+
+[[scope]]
+name = "simulation-does-not-acquire-production-io"
+include = ["crates/bornera-sim/src/**"]
+reason = "Simulation scripts deterministic capabilities rather than acquiring sockets or selectors."
+
+[scope.symbols]
+deny = ["calandria_mio", "mio", "tokio", "std::net", "std::process", "std::thread"]
+
+[[scope]]
+name = "production-remains-native-runtime-neutral"
+include = ["crates/bornera/src/**"]
+reason = "Production privately owns Mio TCP while Calandria remains the sole execution and hosting authority."
+
+[scope.symbols]
+deny = ["tokio", "tower", "std::thread", "std::time::Instant"]
