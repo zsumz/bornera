@@ -52,8 +52,11 @@ Calandria virtual time and a bounded simulated transport. It remains an
 unpublished qualification crate rather than a peer production capability.
 
 Delivery certainty is deliberately limited to `NotSent` and `PossiblySent`.
-A local socket write cannot prove remote receipt or processing. Protocol crates
-retain codecs, routing, session semantics, topology, errors, and retry policy.
+Delivery becomes `PossiblySent` when application bytes cross the irreversible
+transport-write ownership boundary. With a buffering transport, complete frames
+can leave Bornera before encoded output reaches the operating system. Neither
+boundary proves remote receipt or processing. Protocol crates retain codecs,
+routing, session semantics, topology, errors, and retry policy.
 
 ## Crates
 

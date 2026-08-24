@@ -74,6 +74,9 @@ where
     }
 
     /// Atomically transfers a permit and complete frame to write ownership.
+    ///
+    /// An accepted-owner failure still carries the exact accepted operation. It must not
+    /// be retried, and this owner must then be recovered.
     pub fn commit(
         &mut self,
         permit: OperationPermit,

@@ -118,7 +118,7 @@ fn submit(
         Err(EngineCommitError::Rejected(error)) => {
             SlotActionResult::Rejected(SlotActionFailure::Commit(error.failure()))
         }
-        Err(EngineCommitError::Owner {
+        Err(EngineCommitError::AcceptedOwnerFailure {
             operation: committed,
             source,
         }) => {

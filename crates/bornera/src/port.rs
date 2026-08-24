@@ -29,7 +29,7 @@ impl ConnectionPort {
         self.connection
     }
 
-    /// Queues a request to open regular admission after establishment.
+    /// Queues admission opening after the caller has established its protocol session.
     pub fn open_admission(&self) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender
             .try_send_control(ConnectionCommand::OpenAdmission {

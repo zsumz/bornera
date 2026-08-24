@@ -16,7 +16,10 @@ where
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
 {
-    /// Opens regular operation admission after transport establishment.
+    /// Opens regular admission after the caller has established its protocol session.
+    ///
+    /// Bornera mechanically requires an open application transport but does not validate
+    /// protocol negotiation. [`ConnectionEvent::AdmissionOpened`] is authoritative.
     pub fn open_admission(&mut self) -> Result<InputDisposition, EngineError> {
         self.ensure_running()?;
         let result = self.open_admission_inner();

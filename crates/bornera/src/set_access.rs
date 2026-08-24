@@ -35,6 +35,10 @@ where
     }
 
     /// Atomically transfers a permit and prepared frame to one connection.
+    ///
+    /// An accepted-owner failure still carries the exact accepted operation. The caller
+    /// must publish its semantic context, must not retry the frame, and must recover the
+    /// failed connection.
     pub fn commit(
         &mut self,
         connection: ConnectionToken,
@@ -54,7 +58,7 @@ where
             Ok(operation) => match self.settle_connection(resource) {
                 Ok(_) => Ok(operation),
                 Err(source) => Err(ConnectionCommitError::Connection(
-                    crate::EngineCommitError::Owner { operation, source },
+                    crate::EngineCommitError::AcceptedOwnerFailure { operation, source },
                 )),
             },
             Err(error) => {

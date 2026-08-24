@@ -85,8 +85,11 @@ pub enum EngineError {
 pub enum EngineCommitError<F> {
     /// Policy or writer admission rejected and preserved both permit and frame.
     Rejected(Box<FrameCommitError<F>>),
-    /// The accepted operation exposed a fatal owner invariant while publishing effects.
-    Owner {
+    /// The operation was accepted before effect publication exposed fatal owner divergence.
+    ///
+    /// The caller must publish any reserved semantic context for `operation`, must not
+    /// retry the frame, and must recover the failed owner.
+    AcceptedOwnerFailure {
         /// Operation already accepted before the fatal owner divergence.
         operation: bornera_core::OperationId,
         /// Fatal owner failure.
@@ -160,7 +163,7 @@ impl<F: fmt::Debug> fmt::Display for EngineCommitError<F> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Rejected(source) => source.fmt(formatter),
-            Self::Owner { source, .. } => source.fmt(formatter),
+            Self::AcceptedOwnerFailure { source, .. } => source.fmt(formatter),
             Self::OwnerFailed { .. } => formatter.write_str("connection owner previously failed"),
         }
     }
