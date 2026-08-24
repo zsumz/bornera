@@ -1,12 +1,9 @@
 //! Bounded selector-free deadline and transport progression for one slot.
 
-use bornera_core::{CloseReason, ConnectionInput, FrameDecoder};
+use bornera_core::FrameDecoder;
 use calandria::{Moment, Retained};
 
-use crate::{
-    ConnectProgress, ConnectionSlot, EngineError, InboundClassifier, IoPreference, SlotTransport,
-    TransportDiagnostic, TransportFailurePhase, TransportState,
-};
+use crate::{ConnectionSlot, EngineError, InboundClassifier, IoPreference, SlotTransport};
 
 /// Bounded work and remaining-runnable state from one slot quantum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,7 +14,7 @@ pub struct SlotProgress {
 }
 
 impl SlotProgress {
-    /// Returns the number of deadline, decode, connect, read, or write steps completed.
+    /// Returns the number of deadline, transport, decode, read, or write steps completed.
     pub const fn work(self) -> usize {
         self.work
     }
@@ -76,43 +73,6 @@ where
         })
     }
 
-    fn drive_deadlines(&mut self, now: Moment, budget: usize) -> Result<usize, EngineError> {
-        let mut work = 0;
-        while work < budget {
-            let operation = self.timers.next_deadline();
-            let connect_first = self.is_connecting()
-                && self.connect_deadline.is_elapsed_at(now)
-                && operation.is_none_or(|deadline| self.connect_deadline <= deadline);
-            if connect_first {
-                self.close_for(CloseReason::ConnectTimedOut)?;
-                work += 1;
-                break;
-            }
-            let Some(timer) = self.timers.pop_due(now) else {
-                break;
-            };
-            let token = timer.token();
-            if let Some(index) = self.deadlines.iter().position(|entry| entry.token == token) {
-                self.deadlines.swap_remove(index);
-            }
-            let event = timer.into_value();
-            let transition = self
-                .core
-                .apply(ConnectionInput::DeadlineElapsed {
-                    epoch: event.epoch,
-                    operation: event.operation,
-                    now,
-                })
-                .map_err(EngineError::Core)?;
-            self.interpret_unit(transition)?;
-            work += 1;
-            if self.close_request.is_some() {
-                break;
-            }
-        }
-        Ok(work)
-    }
-
     fn drive_io<T: SlotTransport + ?Sized>(
         &mut self,
         mut transport: Option<&mut T>,
@@ -120,37 +80,19 @@ where
     ) -> Result<SlotProgress, EngineError> {
         let mut work = 0;
         while work < budget && self.close_request.is_none() {
-            if self.decoder_pending {
-                self.drive_decoder_once()?;
-                work += 1;
-                continue;
-            }
-            let Some(transport) = transport.as_deref_mut() else {
+            let progressed = match transport.as_deref_mut() {
+                Some(transport) => self.drive_ready_once(transport, budget - work)?,
+                None if self.decoder_pending => {
+                    self.drive_decoder_once()?;
+                    self.io_preference = IoPreference::Read;
+                    Some(1)
+                }
+                None => None,
+            };
+            let Some(progressed) = progressed else {
                 break;
             };
-            if self.is_connecting() && transport.can_finish_connect() {
-                self.drive_connect_once(transport)?;
-                work += 1;
-                continue;
-            }
-            let progressed = match self.io_preference {
-                IoPreference::Read => match self.drive_read_once(transport)? {
-                    Some(progressed) => Some(progressed),
-                    None => self.drive_write_once(transport)?,
-                },
-                IoPreference::Write => match self.drive_write_once(transport)? {
-                    Some(progressed) => Some(progressed),
-                    None => self.drive_read_once(transport)?,
-                },
-            };
-            if progressed.is_none() {
-                break;
-            }
-            self.io_preference = match self.io_preference {
-                IoPreference::Read => IoPreference::Write,
-                IoPreference::Write => IoPreference::Read,
-            };
-            work += 1;
+            work += progressed;
         }
         Ok(SlotProgress {
             work,
@@ -163,38 +105,45 @@ where
         })
     }
 
-    fn drive_connect_once<T: SlotTransport + ?Sized>(
+    fn drive_ready_once<T: SlotTransport + ?Sized>(
         &mut self,
         transport: &mut T,
-    ) -> Result<(), EngineError> {
-        match transport.finish_connect() {
-            Ok(ConnectProgress::Opened | ConnectProgress::AlreadyOpen) => {
-                if let Err(source) = transport.apply_policy(self.socket_policy) {
-                    self.record_transport_failure(TransportDiagnostic::from_io(
-                        TransportFailurePhase::SocketPolicy,
-                        &source,
-                    ));
-                    return self.close_for(CloseReason::ConnectFailed);
+        remaining: usize,
+    ) -> Result<Option<usize>, EngineError> {
+        let mut preference = self.io_preference;
+        for _ in 0..4 {
+            let current = preference;
+            preference = preference.next();
+            let progressed = match current {
+                IoPreference::Transport => self.drive_transport_once(transport, remaining)?,
+                IoPreference::Decode => {
+                    if self.decoder_pending {
+                        self.drive_decoder_once()?;
+                        Some(1)
+                    } else {
+                        None
+                    }
                 }
-                self.transport_state = TransportState::Open;
-                self.publish_transport_opened()
-            }
-            Ok(ConnectProgress::Pending) => Ok(()),
-            Err(source) => {
-                self.record_transport_failure(TransportDiagnostic::from_io(
-                    TransportFailurePhase::Connect,
-                    &source,
-                ));
-                self.close_for(CloseReason::ConnectFailed)
+                IoPreference::Read => {
+                    if self.is_transport_open() {
+                        self.drive_read_once(transport)?.map(|()| 1)
+                    } else {
+                        None
+                    }
+                }
+                IoPreference::Write => {
+                    if self.is_transport_open() {
+                        self.drive_write_once(transport)?.map(|()| 1)
+                    } else {
+                        None
+                    }
+                }
+            };
+            if progressed.is_some() {
+                self.io_preference = preference;
+                return Ok(progressed);
             }
         }
-    }
-
-    fn has_due_deadline(&self, now: Moment) -> bool {
-        (self.is_connecting() && self.connect_deadline.is_elapsed_at(now))
-            || self
-                .timers
-                .next_deadline()
-                .is_some_and(|deadline| deadline.is_elapsed_at(now))
+        Ok(None)
     }
 }

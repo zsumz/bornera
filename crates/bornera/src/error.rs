@@ -60,6 +60,17 @@ pub enum EngineInvariant {
         /// Impossible byte count reported by the transport.
         reported: usize,
     },
+    /// A safe transport reported work outside the supplied hard budget.
+    TransportProgressContract {
+        /// Hard bounds supplied for the call.
+        budget: crate::TransportBudget,
+        /// Impossible progress reported by the transport.
+        reported: crate::TransportProgress,
+    },
+    /// A transport claimed application readiness before accepting establishment policy.
+    TransportOpenedBeforeEstablishment,
+    /// A transport advertised immediate work but performed none.
+    TransportNoProgress,
 }
 
 /// Fatal slot or readiness-adapter failure returned by a bounded operation.
@@ -154,6 +165,15 @@ impl fmt::Display for EngineInvariant {
             Self::UnsupportedCoreEffect => "connection core emitted an unsupported effect",
             Self::TransportReadContract { .. } => {
                 "transport reported a read larger than the supplied buffer"
+            }
+            Self::TransportProgressContract { .. } => {
+                "transport progression exceeded its supplied budget"
+            }
+            Self::TransportOpenedBeforeEstablishment => {
+                "transport opened before bounded establishment accepted its policy"
+            }
+            Self::TransportNoProgress => {
+                "transport advertised immediate work without making progress"
             }
         })
     }

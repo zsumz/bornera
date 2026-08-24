@@ -17,10 +17,10 @@ use calandria::{Interest, Readiness, ResourceOwnerId, Retained, Span, TimerOwner
 use mio::{Registry, Token, event::Source};
 
 use crate::{
-    ConnectProgress, ConnectionConfig, ConnectionIdentity, ConnectionSet, ConnectionSetConfig,
-    ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, InboundClassifier, IoLimits,
-    PublicationLimits, RegisteredTransport, SlotTransport, TcpSocketPolicy, TcpTransport,
-    TransportConnector,
+    ConnectionConfig, ConnectionIdentity, ConnectionSet, ConnectionSetConfig, ConnectionSetLimits,
+    ConnectionSlotLimits, DecoderLimits, InboundClassifier, IoLimits, PublicationLimits,
+    RegisteredTransport, SlotTransport, TcpSocketPolicy, TcpTransport, TransportBudget,
+    TransportConnector, TransportError, TransportProgress,
 };
 
 static SOCKET_ATTEMPTED: AtomicBool = AtomicBool::new(false);
@@ -87,6 +87,7 @@ impl TransportConnector for TestConnector {
 
     fn connect(self, _address: SocketAddr) -> io::Result<Self::Transport> {
         Ok(TestRegisteredTransport {
+            open: false,
             registered_readable: false,
             registered_writable: false,
         })
@@ -95,6 +96,7 @@ impl TransportConnector for TestConnector {
 
 #[derive(Debug)]
 struct TestRegisteredTransport {
+    open: bool,
     registered_readable: bool,
     registered_writable: bool,
 }
@@ -116,20 +118,32 @@ impl io::Write for TestRegisteredTransport {
 }
 
 impl SlotTransport for TestRegisteredTransport {
-    fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
-        Ok(ConnectProgress::AlreadyOpen)
+    fn drive_establishment(
+        &mut self,
+        _policy: TcpSocketPolicy,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        self.open = true;
+        Ok(TransportProgress::operation())
     }
 
-    fn apply_policy(&mut self, _policy: TcpSocketPolicy) -> io::Result<()> {
-        Ok(())
+    fn drive_transport(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::IDLE)
     }
 
-    fn can_finish_connect(&self) -> bool {
-        true
+    fn can_establish(&self) -> bool {
+        !self.open
+    }
+
+    fn has_transport_work(&self) -> bool {
+        false
     }
 
     fn is_open(&self) -> bool {
-        false
+        self.open
     }
 
     fn can_read(&self) -> bool {

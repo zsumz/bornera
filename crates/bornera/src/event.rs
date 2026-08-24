@@ -54,7 +54,7 @@ impl ConnectionEvent {
         }
     }
 
-    /// Returns the exact socket lifetime that produced the edge.
+    /// Returns the exact transport lifetime that produced the edge.
     pub const fn epoch(self) -> ConnectionEpoch {
         match self {
             Self::TransportOpened { epoch, .. }

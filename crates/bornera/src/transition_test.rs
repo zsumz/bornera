@@ -91,9 +91,9 @@ fn pending_connect_clears_cached_completion_readiness() -> Result<(), Box<dyn Er
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let mut transport = crate::TcpTransport::connect(listener.local_addr()?)?;
     transport.observe(Readiness::WRITABLE.union(Readiness::ERROR));
-    assert!(transport.can_finish_connect());
+    assert!(transport.can_establish());
     transport.clear_connect();
-    assert!(!transport.can_finish_connect());
+    assert!(!transport.can_establish());
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-//! Selector-free production state for one exact plaintext connection epoch.
+//! Selector-free production state for one exact application-transport epoch.
 
 use bornera_core::{
     ConnectionCore, FrameDecodeError, FrameDecoder, FrameDriver, OperationId, RetainedBytes,
@@ -76,7 +76,7 @@ where
             event_sequence: 0,
             read_buffer,
             decoder_pending: false,
-            io_preference: IoPreference::Read,
+            io_preference: IoPreference::Transport,
             transport_state: TransportState::Connecting,
             transport_diagnostic: None,
             close_request: None,
@@ -105,8 +105,21 @@ pub(crate) struct DeadlineEntry {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IoPreference {
+    Transport,
+    Decode,
     Read,
     Write,
+}
+
+impl IoPreference {
+    pub(crate) const fn next(self) -> Self {
+        match self {
+            Self::Transport => Self::Decode,
+            Self::Decode => Self::Read,
+            Self::Read => Self::Write,
+            Self::Write => Self::Transport,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

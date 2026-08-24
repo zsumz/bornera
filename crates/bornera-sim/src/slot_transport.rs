@@ -2,7 +2,10 @@
 
 use std::{collections::VecDeque, io};
 
-use bornera::{ConnectProgress, SlotTransport, TcpSocketPolicy};
+use bornera::{
+    SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
+    TransportProgress,
+};
 use calandria::Interest;
 
 #[derive(Debug)]
@@ -109,29 +112,40 @@ impl io::Write for SimTransport {
 }
 
 impl SlotTransport for SimTransport {
-    fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
+    fn drive_establishment(
+        &mut self,
+        policy: TcpSocketPolicy,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
         match self.phase {
-            Phase::Open => Ok(ConnectProgress::AlreadyOpen),
-            Phase::Closed => Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "simulated transport closed",
+            Phase::Open => Ok(TransportProgress::IDLE),
+            Phase::Closed => Err(TransportError::from_io(
+                TransportFailurePhase::Connect,
+                io::Error::new(io::ErrorKind::NotConnected, "simulated transport closed"),
             )),
             Phase::Connecting if self.connect_ready => {
                 self.phase = Phase::Open;
                 self.connect_ready = false;
-                Ok(ConnectProgress::Opened)
+                self.applied_policy = Some(policy);
+                Ok(TransportProgress::operation())
             }
-            Phase::Connecting => Ok(ConnectProgress::Pending),
+            Phase::Connecting => Ok(TransportProgress::operation()),
         }
     }
 
-    fn apply_policy(&mut self, policy: TcpSocketPolicy) -> io::Result<()> {
-        self.applied_policy = Some(policy);
-        Ok(())
+    fn drive_transport(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::IDLE)
     }
 
-    fn can_finish_connect(&self) -> bool {
+    fn can_establish(&self) -> bool {
         self.phase == Phase::Connecting && self.connect_ready
+    }
+
+    fn has_transport_work(&self) -> bool {
+        false
     }
 
     fn is_open(&self) -> bool {

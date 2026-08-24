@@ -66,14 +66,15 @@ pub use set::ConnectionSet;
 pub use slot::ConnectionSlot;
 pub(crate) use slot::{CloseDirective, DeadlineEntry, DeadlineEvent, IoPreference, to_u64};
 pub use snapshot::{
-    ConnectionSetSnapshot, ConnectionSlotSnapshot, TransportDiagnostic, TransportFailurePhase,
-    TransportState,
+    ConnectionSetSnapshot, ConnectionSlotSnapshot, TransportDiagnostic, TransportFailureKind,
+    TransportFailurePhase, TransportState,
 };
 pub use socket::{SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy};
 pub use standalone::StandaloneConnection;
 pub(crate) use state::EngineState;
 pub use token::ConnectionToken;
 pub use transport::{
-    ConnectProgress, RegisteredTransport, SlotTransport, TcpTransport, TransportConnector,
+    RegisteredTransport, SlotTransport, TcpTransport, TransportBudget, TransportConnector,
+    TransportError, TransportProgress,
 };
 pub use waiter::ConnectionWaiter;

@@ -8,20 +8,45 @@ use std::{
 use calandria::{Interest, Readiness};
 use mio::event::Source;
 
-use crate::TcpSocketPolicy;
+use crate::{TcpSocketPolicy, TransportBudget, TransportError, TransportProgress};
 
 /// Backend-neutral nonblocking capability driven by a [`crate::ConnectionSlot`].
+///
+/// `Read` and `Write` exchange application bytes. A positive application write
+/// irreversibly transfers exactly that prefix into transport ownership; it need not
+/// mean that encoded transport bytes reached the operating system. A nonempty write
+/// must not return `Ok(0)`: implementations expose local backpressure through
+/// [`SlotTransport::can_write`] or `WouldBlock`.
 ///
 /// Implementations own readiness observations and must clear a readiness class
 /// when its corresponding operation reports [`io::ErrorKind::WouldBlock`].
 pub trait SlotTransport: Read + Write {
-    /// Resolves one readiness-observed nonblocking connect attempt.
-    fn finish_connect(&mut self) -> io::Result<ConnectProgress>;
-    /// Applies the configured mechanical socket policy after establishment.
-    fn apply_policy(&mut self, policy: TcpSocketPolicy) -> io::Result<()>;
-    /// Returns whether connect completion can make progress now.
-    fn can_finish_connect(&self) -> bool;
-    /// Returns whether the transport is established.
+    /// Performs bounded establishment work, including socket policy, toward application readiness.
+    ///
+    /// [`SlotTransport::can_establish`] must cover all immediately runnable work while
+    /// establishment remains incomplete. A successful call must report nonzero work
+    /// within `budget`.
+    fn drive_establishment(
+        &mut self,
+        policy: TcpSocketPolicy,
+        budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError>;
+    /// Performs bounded transport-local work independent of application frames.
+    ///
+    /// A successful call made after [`SlotTransport::has_transport_work`] returned
+    /// `true` must report nonzero work within `budget`.
+    fn drive_transport(
+        &mut self,
+        budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError>;
+    /// Returns whether establishment can make immediate progress now.
+    fn can_establish(&self) -> bool;
+    /// Returns whether transport-local work can make immediate progress without a new edge.
+    fn has_transport_work(&self) -> bool;
+    /// Returns whether complete establishment allows application-byte exchange.
+    ///
+    /// This must remain `false` until `drive_establishment` has accepted the exact
+    /// supplied socket policy and completed every transport-specific handshake.
     fn is_open(&self) -> bool;
     /// Returns whether a read can be attempted now.
     fn can_read(&self) -> bool;
@@ -55,16 +80,4 @@ pub trait TransportConnector {
 
     /// Initiates one exact nonblocking attempt to the already-resolved address.
     fn connect(self, address: SocketAddr) -> io::Result<Self::Transport>;
-}
-
-/// Result of resolving one readiness-observed nonblocking connection attempt.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum ConnectProgress {
-    /// Establishment remains pending after the observation was consumed.
-    Pending,
-    /// This attempt transitioned from connecting to open.
-    Opened,
-    /// The capability was already open.
-    AlreadyOpen,
 }

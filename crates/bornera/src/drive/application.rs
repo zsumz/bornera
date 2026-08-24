@@ -158,9 +158,11 @@ where
 
     pub(crate) fn has_runnable_io<T: SlotTransport + ?Sized>(&self, transport: &T) -> bool {
         self.decoder_pending
-            || (self.is_connecting() && transport.can_finish_connect())
-            || transport.can_read()
-            || (transport.is_open()
+            || (self.is_connecting() && (transport.is_open() || transport.can_establish()))
+            || (self.is_transport_open() && transport.has_transport_work())
+            || (self.is_transport_open() && transport.can_read())
+            || (self.is_transport_open()
+                && transport.is_open()
                 && self.core.queued_write_frames() > 0
                 && (self.core.front_write_is_empty() || transport.can_write()))
     }
