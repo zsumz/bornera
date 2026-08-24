@@ -8,9 +8,14 @@ license.workspace = true
 readme.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation = "https://docs.rs/bornera"
 description = "Deterministic connection ownership for native protocol clients."
 keywords = ["networking", "protocol", "connection", "deterministic"]
 categories = ["network-programming"]
+publish = ["crates-io"]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
 bytes.workspace = true

@@ -20,7 +20,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera-core"
-requirement = "=0.0.1"
+requirement = "=0.0.1-rc.1"
 
 [[package.dependency]]
 alias = "bytes"

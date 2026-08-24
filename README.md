@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./bornera-logo.svg" alt="bornera" width="720">
+  <img src="https://raw.githubusercontent.com/zsumz/bornera/main/bornera-logo.svg" alt="bornera" width="720">
 </p>
 
 <p align="center">
@@ -53,6 +53,14 @@ Use only the layer you need.
 
 ## Start
 
+Add only the layers you need:
+
+```toml
+[dependencies]
+bornera = "=0.0.1-rc.1"
+bornera-core = "=0.0.1-rc.1"
+```
+
 Run either production hosting model from a checkout:
 
 ```sh
@@ -72,9 +80,9 @@ zcheck
 The zcheck graph is the complete gate for formatting, tests, examples, Clippy,
 rustdoc, source shape, zrail architecture, and clean diffs.
 
-Bornera requires Rust 1.88 or newer. The repository is pre-alpha; DNS ownership,
-reconnect policy, optional TLS, and deterministic network simulation remain
-future work.
+Bornera requires Rust 1.88 or newer. `0.0.1-rc.1` is a release candidate; DNS
+ownership, reconnect policy, optional TLS, and deterministic network simulation
+remain future work.
 
 ## License
 

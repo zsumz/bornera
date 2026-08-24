@@ -7,7 +7,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.1-rc.1"
 edition = "2024"
 rust-version = "1.88"
 authors = ["zsumz <shawn@zsumz.com>"]
@@ -20,7 +20,7 @@ homepage = "https://github.com/zsumz/bornera"
 bytes = "1.11.1"
 calandria = { version = "=0.0.1-rc.1", default-features = false }
 calandria-mio = { version = "=0.0.1-rc.1" }
-bornera-core = { version = "=0.0.1", path = "crates/bornera-core" }
+bornera-core = { version = "=0.0.1-rc.1", path = "crates/bornera-core" }
 mio = { version = "1.2.2", default-features = false, features = ["net"] }
 
 [workspace.lints.rust]
