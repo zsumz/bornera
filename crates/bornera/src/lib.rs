@@ -12,7 +12,6 @@ mod error;
 mod event;
 mod failure;
 mod frame;
-mod io;
 mod lifecycle;
 mod outcome;
 mod port;
