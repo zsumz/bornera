@@ -26,6 +26,13 @@ pub(crate) fn slot() -> Result<ConnectionSlot<Decoder, Classifier>, Box<dyn Erro
 pub(crate) fn slot_with_decoder(
     decoder: Decoder,
 ) -> Result<ConnectionSlot<Decoder, Classifier>, Box<dyn Error>> {
+    slot_with_io_operations(decoder, 4)
+}
+
+pub(crate) fn slot_with_io_operations(
+    decoder: Decoder,
+    operations: usize,
+) -> Result<ConnectionSlot<Decoder, Classifier>, Box<dyn Error>> {
     let core = ConnectionLimits::new(
         4,
         RetainedBytes::new(64),
@@ -36,7 +43,7 @@ pub(crate) fn slot_with_decoder(
     let limits = ConnectionSlotLimits::new(
         core,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
-        IoLimits::new(nonzero(4)?, nonzero(8)?),
+        IoLimits::new(nonzero(operations)?, nonzero(8)?),
         PublicationLimits::new(nonzero(8)?),
     )?;
     let identity = ConnectionIdentity::new(

@@ -7,10 +7,11 @@ use bornera_core::{
 use calandria::{Duty, EventBatchDrain, Moment, Next, Retained, Span, Turn, WaitOutcome};
 
 use crate::{
-    ConnectError, ConnectionCommitError, ConnectionEvent, ConnectionPort, ConnectionSet,
-    ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlotLimits, ConnectionSlotSnapshot,
-    ConnectionToken, EngineCommitError, EngineError, EngineOutcome, InboundClassifier,
-    OutboundFrame, OwnerFailure, StandaloneConnectionConfig, TransportState,
+    ConnectError, ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
+    ConnectionSet, ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlotLimits,
+    ConnectionSlotSnapshot, ConnectionToken, EngineCommitError, EngineError, EngineInvariant,
+    EngineOutcome, InboundClassifier, OutboundFrame, OwnerFailure, StandaloneConnectionConfig,
+    TransportState,
 };
 
 /// Dedicated capacity-one owner implemented by the same bounded connection set.
@@ -93,39 +94,53 @@ where
 
     /// Opens regular admission synchronously after establishment.
     pub fn open_admission(&mut self) -> Result<InputDisposition, EngineError> {
-        self.set.open_admission(self.connection)
+        self.set
+            .open_admission(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Cancels local observation synchronously.
     pub fn cancel(&mut self, operation: OperationId) -> Result<CancelOutcome, EngineError> {
-        self.set.cancel(self.connection, operation)
+        self.set
+            .cancel(self.connection, operation)
+            .map_err(standalone_error)
     }
 
     /// Begins ordered draining synchronously.
     pub fn begin_drain(&mut self) -> Result<InputDisposition, EngineError> {
-        self.set.begin_drain(self.connection)
+        self.set
+            .begin_drain(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Requests mechanical closure synchronously.
     pub fn finalize(&mut self, reason: CloseReason) -> Result<InputDisposition, EngineError> {
-        self.set.finalize(self.connection, reason)
+        self.set
+            .finalize(self.connection, reason)
+            .map_err(standalone_error)
     }
 
     /// Drains terminal outcomes.
     pub fn drain_outcomes(
         &mut self,
     ) -> Result<EventBatchDrain<'_, EngineOutcome<D::Frame>>, EngineError> {
-        self.set.drain_outcomes(self.connection)
+        self.set
+            .drain_outcomes(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Drains lifecycle events.
     pub fn drain_events(&mut self) -> Result<EventBatchDrain<'_, ConnectionEvent>, EngineError> {
-        self.set.drain_events(self.connection)
+        self.set
+            .drain_events(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Returns immutable state for the sole connection.
     pub fn snapshot(&self) -> Result<ConnectionSlotSnapshot, EngineError> {
-        self.set.connection_snapshot(self.connection)
+        self.set
+            .connection_snapshot(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Returns immutable pressure state for the capacity-one set machinery.
@@ -135,14 +150,19 @@ where
 
     /// Returns whether the TCP capability completed establishment.
     pub fn is_transport_open(&self) -> Result<bool, EngineError> {
-        self.set.is_transport_open(self.connection)
+        self.set
+            .is_transport_open(self.connection)
+            .map_err(standalone_error)
     }
 
     /// Performs one bounded capacity-one owner turn.
     pub fn turn_component(&mut self, now: Moment) -> Result<Turn, EngineError> {
         self.ensure_running()?;
         let turn = self.set.turn_component(now)?;
-        let snapshot = self.set.connection_snapshot(self.connection)?;
+        let snapshot = self
+            .set
+            .connection_snapshot(self.connection)
+            .map_err(standalone_error)?;
         if let Some(reason) = snapshot.owner_failure {
             return Err(EngineError::OwnerFailed(reason));
         }
@@ -160,10 +180,22 @@ where
     }
 
     fn ensure_running(&self) -> Result<(), EngineError> {
-        let snapshot = self.set.connection_snapshot(self.connection)?;
+        let snapshot = self
+            .set
+            .connection_snapshot(self.connection)
+            .map_err(standalone_error)?;
         snapshot
             .owner_failure
             .map_or(Ok(()), |reason| Err(EngineError::OwnerFailed(reason)))
+    }
+}
+
+fn standalone_error(error: ConnectionAccessError) -> EngineError {
+    match error {
+        ConnectionAccessError::StaleConnection => {
+            EngineError::Invariant(EngineInvariant::ResourceToken)
+        }
+        ConnectionAccessError::Owner(source) => source,
     }
 }
 

@@ -56,7 +56,9 @@ fn closed_publication_failure_is_returned_by_synchronous_finalize() -> Result<()
 
     assert!(matches!(
         set.finalize(connection, CloseReason::Requested),
-        Err(EngineError::OwnerFailed(OwnerFailure::OwnerInvariant))
+        Err(crate::ConnectionAccessError::Owner(
+            EngineError::OwnerFailed(OwnerFailure::OwnerInvariant)
+        ))
     ));
     assert_eq!(
         set.connection_snapshot(connection)?.owner_failure,

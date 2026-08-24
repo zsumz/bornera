@@ -52,18 +52,22 @@ where
     ) -> Result<SlotProgress, EngineError> {
         let budget = self.limits.io_operations().get();
         let mut work = self.drive_deadlines(now, budget)?;
-        if self.close_request.is_some() || work == budget {
-            return Ok(SlotProgress {
-                work,
-                saturated: work == budget && self.has_due_deadline(now),
-            });
-        }
-        let Some(transport) = transport else {
+        if self.close_request.is_some() {
             return Ok(SlotProgress {
                 work,
                 saturated: false,
             });
-        };
+        }
+        if work == budget {
+            let runnable_io = self.decoder_pending
+                || transport
+                    .as_deref()
+                    .is_some_and(|transport| self.has_runnable_io(transport));
+            return Ok(SlotProgress {
+                work,
+                saturated: self.has_due_deadline(now) || runnable_io,
+            });
+        }
         let io = self.drive_io(transport, budget - work)?;
         work = work.saturating_add(io.work);
         Ok(SlotProgress {
@@ -111,7 +115,7 @@ where
 
     fn drive_io<T: SlotTransport + ?Sized>(
         &mut self,
-        transport: &mut T,
+        mut transport: Option<&mut T>,
         budget: usize,
     ) -> Result<SlotProgress, EngineError> {
         let mut work = 0;
@@ -121,6 +125,9 @@ where
                 work += 1;
                 continue;
             }
+            let Some(transport) = transport.as_deref_mut() else {
+                break;
+            };
             if self.is_connecting() && transport.can_finish_connect() {
                 self.drive_connect_once(transport)?;
                 work += 1;
@@ -149,7 +156,10 @@ where
             work,
             saturated: work == budget
                 && self.close_request.is_none()
-                && self.has_runnable_io(transport),
+                && (self.decoder_pending
+                    || transport
+                        .as_deref()
+                        .is_some_and(|transport| self.has_runnable_io(transport))),
         })
     }
 

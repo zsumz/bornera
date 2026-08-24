@@ -10,9 +10,9 @@ use calandria::{
 use calandria_mio::MioPoller;
 
 use crate::{
-    ConnectionCommand, ConnectionIdentity, ConnectionPort, ConnectionSetConfig,
-    ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlot, ConnectionToken, EngineError,
-    InboundClassifier, PlaintextTransport,
+    ConnectionAccessError, ConnectionCommand, ConnectionIdentity, ConnectionPort,
+    ConnectionSetConfig, ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlot,
+    ConnectionToken, EngineError, InboundClassifier, PlaintextTransport,
 };
 
 /// One connection slot plus the private capability registered for its generation.
@@ -95,8 +95,12 @@ where
     }
 
     /// Returns a bounded command producer tied to one exact live generation.
-    pub fn port(&self, connection: ConnectionToken) -> Result<ConnectionPort, EngineError> {
-        self.ensure_owner_running()?;
+    pub fn port(
+        &self,
+        connection: ConnectionToken,
+    ) -> Result<ConnectionPort, ConnectionAccessError> {
+        self.ensure_owner_running()
+            .map_err(ConnectionAccessError::Owner)?;
         let _entry = self.entry(connection)?;
         Ok(ConnectionPort::new(connection, self.sender.clone()))
     }
@@ -129,6 +133,45 @@ where
         } else {
             WaitOutcome::Notified
         })
+    }
+
+    pub(crate) fn entry(
+        &self,
+        connection: ConnectionToken,
+    ) -> Result<&ConnectionEntry<D, C>, ConnectionAccessError> {
+        let (identity, entry) = self
+            .resources
+            .get(connection.resource())
+            .map_err(|_| ConnectionAccessError::StaleConnection)?;
+        if *identity != connection.identity() {
+            return Err(ConnectionAccessError::StaleConnection);
+        }
+        Ok(entry)
+    }
+
+    pub(crate) fn entry_mut(
+        &mut self,
+        connection: ConnectionToken,
+    ) -> Result<&mut ConnectionEntry<D, C>, ConnectionAccessError> {
+        let (identity, entry) = self
+            .resources
+            .get_mut(connection.resource())
+            .map_err(|_| ConnectionAccessError::StaleConnection)?;
+        if *identity != connection.identity() {
+            return Err(ConnectionAccessError::StaleConnection);
+        }
+        Ok(entry)
+    }
+
+    pub(crate) fn enqueue(&mut self, resource: ResourceToken) {
+        let Ok((_, entry)) = self.resources.get_mut(resource) else {
+            return;
+        };
+        if entry.ready_queued {
+            return;
+        }
+        entry.ready_queued = true;
+        self.ready.push_back(resource);
     }
 }
 

@@ -166,6 +166,11 @@ impl<F: WriteFrame> ConnectionCore<F> {
         self.writes.queued_frames()
     }
 
+    /// Returns whether the FIFO front can complete without transport progress.
+    pub fn front_write_is_empty(&self) -> bool {
+        self.writes.front_is_empty()
+    }
+
     /// Returns the internal write identity retained for an accepted operation.
     pub fn write_effect(&self, operation: OperationId) -> Option<EffectId> {
         self.writes.effect_for(operation)

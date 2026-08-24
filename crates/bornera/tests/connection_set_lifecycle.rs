@@ -3,13 +3,14 @@
 use std::{error::Error, net::TcpListener, num::NonZeroUsize};
 
 use bornera::{
-    ConnectionConfig, ConnectionIdentity, ConnectionSet, ConnectionSetConfig, ConnectionSetLimits,
-    ConnectionSlotLimits, DecoderLimits, IoLimits, PublicationLimits, SocketPolicyError,
-    TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy, TransportState,
+    ConnectionAccessError, ConnectionConfig, ConnectionIdentity, ConnectionSet,
+    ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, IoLimits,
+    PublicationLimits, SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy,
+    TransportState,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
-    FrameDecoder, LaneId, MatchKey, MatchKeySpace, Moment, RetainedBytes,
+    FrameDecoder, LaneId, MatchKey, MatchKeySpace, Moment, OperationId, RetainedBytes,
 };
 use calandria::{Next, ResourceOwnerId, Retained, Span, TimerOwnerId};
 
@@ -30,6 +31,16 @@ fn retired_generation_commands_cannot_reach_its_replacement() -> Result<(), Box<
     set.finalize(old, CloseReason::Requested)?;
     drop(set.drain_events(old)?);
     set.retire(old)?;
+    assert_stale(&set.port(old));
+    assert_stale(&set.open_admission(old));
+    assert_stale(&set.cancel(old, OperationId::new(99)));
+    assert_stale(&set.begin_drain(old));
+    assert_stale(&set.finalize(old, CloseReason::Requested));
+    assert_stale(&set.drain_outcomes(old));
+    assert_stale(&set.drain_events(old));
+    assert_stale(&set.connection_snapshot(old));
+    assert_stale(&set.is_transport_open(old));
+    assert!(set.snapshot().owner_failure.is_none());
 
     let replacement = set.connect(
         connection_config(new_listener.local_addr()?, 10, 21, 31, far_deadline()),
@@ -160,6 +171,13 @@ fn connection_state(set: &TestSet, connection: bornera::ConnectionToken) -> Tran
 fn nz(value: usize) -> Result<NonZeroUsize, Box<dyn Error>> {
     NonZeroUsize::new(value)
         .ok_or_else(|| std::io::Error::other("test bound must be nonzero").into())
+}
+
+fn assert_stale<T>(result: &Result<T, ConnectionAccessError>) {
+    assert!(matches!(
+        result,
+        Err(ConnectionAccessError::StaleConnection)
+    ));
 }
 
 #[derive(Debug)]

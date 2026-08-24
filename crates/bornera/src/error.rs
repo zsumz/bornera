@@ -29,7 +29,7 @@ pub enum ConnectError<E> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EngineInvariant {
-    /// A generation token no longer named the requested live connection.
+    /// A resource generation already proven live disappeared internally.
     ResourceToken,
     /// An aggregate-internal frame discard escaped into the capability interpreter.
     UnexpectedDiscardEffect,
@@ -133,7 +133,7 @@ impl core::error::Error for EngineError {}
 impl fmt::Display for EngineInvariant {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::ResourceToken => "the transport resource token is stale or absent",
+            Self::ResourceToken => "a proven-live transport resource disappeared",
             Self::UnexpectedDiscardEffect => "an internal write discard escaped the aggregate",
             Self::UnexpectedUnitReply => "unit policy transition published a reply",
             Self::DeadlineIndexCapacity => "deadline index exceeded operation capacity",

@@ -3,7 +3,6 @@
 //! This crate privately owns native plaintext TCP capabilities while Calandria
 //! supplies time, readiness, timers, resources, wakes, and hosting. Protocol
 //! crates retain codecs, session meaning, routing, retry, and public APIs.
-
 mod admission;
 mod classifier;
 mod command;
@@ -54,7 +53,8 @@ pub use config::{
     PublicationLimits, StandaloneConnectionConfig,
 };
 pub use connection_error::{
-    ConnectionCommitError, ConnectionRecoveryError, ConnectionReserveError, ConnectionRetireError,
+    ConnectionAccessError, ConnectionCommitError, ConnectionRecoveryError, ConnectionReserveError,
+    ConnectionRetireError,
 };
 pub use drive::SlotProgress;
 pub use error::{ConnectError, EngineCommitError, EngineError, EngineInvariant};

@@ -160,6 +160,8 @@ where
         self.decoder_pending
             || (self.is_connecting() && transport.can_finish_connect())
             || transport.can_read()
-            || (transport.can_write() && self.core.queued_write_frames() > 0)
+            || (transport.is_open()
+                && self.core.queued_write_frames() > 0
+                && (self.core.front_write_is_empty() || transport.can_write()))
     }
 }

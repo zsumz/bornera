@@ -4,12 +4,12 @@ use bornera_core::{
     CancelOutcome, CloseReason, FrameDecoder, InputDisposition, OperationId, OperationOptions,
     OperationPermit,
 };
-use calandria::{EventBatchDrain, Moment, ResourceToken, Retained};
+use calandria::{EventBatchDrain, Moment, Retained};
 
 use crate::{
-    ConnectionCommitError, ConnectionEntry, ConnectionEvent, ConnectionReserveError,
-    ConnectionRetireError, ConnectionSet, ConnectionSlotSnapshot, ConnectionToken, EngineError,
-    EngineInvariant, EngineOutcome, InboundClassifier, OutboundFrame, TransportState,
+    ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionReserveError,
+    ConnectionRetireError, ConnectionSet, ConnectionSlotSnapshot, ConnectionToken, EngineOutcome,
+    InboundClassifier, OutboundFrame, TransportState,
 };
 
 impl<D, C> ConnectionSet<D, C>
@@ -68,7 +68,7 @@ where
     pub fn open_admission(
         &mut self,
         connection: ConnectionToken,
-    ) -> Result<InputDisposition, EngineError> {
+    ) -> Result<InputDisposition, ConnectionAccessError> {
         self.apply_and_enqueue(connection, ConnectionPortAction::OpenAdmission)
     }
 
@@ -77,15 +77,18 @@ where
         &mut self,
         connection: ConnectionToken,
         operation: OperationId,
-    ) -> Result<CancelOutcome, EngineError> {
+    ) -> Result<CancelOutcome, ConnectionAccessError> {
         let resource = connection.resource();
         let result = self.entry_mut(connection)?.slot.cancel(operation);
         self.enqueue(resource);
         match result {
-            Ok(outcome) => self.settle_connection(resource).map(|_| outcome),
+            Ok(outcome) => self
+                .settle_connection(resource)
+                .map(|_| outcome)
+                .map_err(ConnectionAccessError::Owner),
             Err(error) => {
                 let _settled = self.settle_connection(resource);
-                Err(error)
+                Err(ConnectionAccessError::Owner(error))
             }
         }
     }
@@ -94,7 +97,7 @@ where
     pub fn begin_drain(
         &mut self,
         connection: ConnectionToken,
-    ) -> Result<InputDisposition, EngineError> {
+    ) -> Result<InputDisposition, ConnectionAccessError> {
         self.apply_and_enqueue(connection, ConnectionPortAction::BeginDrain)
     }
 
@@ -103,15 +106,18 @@ where
         &mut self,
         connection: ConnectionToken,
         reason: CloseReason,
-    ) -> Result<InputDisposition, EngineError> {
+    ) -> Result<InputDisposition, ConnectionAccessError> {
         let resource = connection.resource();
         let result = self.entry_mut(connection)?.slot.finalize(reason);
         self.enqueue(resource);
         match result {
-            Ok(disposition) => self.settle_connection(resource).map(|_| disposition),
+            Ok(disposition) => self
+                .settle_connection(resource)
+                .map(|_| disposition)
+                .map_err(ConnectionAccessError::Owner),
             Err(error) => {
                 let _settled = self.settle_connection(resource);
-                Err(error)
+                Err(ConnectionAccessError::Owner(error))
             }
         }
     }
@@ -120,7 +126,7 @@ where
     pub fn drain_outcomes(
         &mut self,
         connection: ConnectionToken,
-    ) -> Result<EventBatchDrain<'_, EngineOutcome<D::Frame>>, EngineError> {
+    ) -> Result<EventBatchDrain<'_, EngineOutcome<D::Frame>>, ConnectionAccessError> {
         Ok(self.entry_mut(connection)?.slot.drain_outcomes())
     }
 
@@ -128,7 +134,7 @@ where
     pub fn drain_events(
         &mut self,
         connection: ConnectionToken,
-    ) -> Result<EventBatchDrain<'_, ConnectionEvent>, EngineError> {
+    ) -> Result<EventBatchDrain<'_, ConnectionEvent>, ConnectionAccessError> {
         Ok(self.entry_mut(connection)?.slot.drain_events())
     }
 
@@ -136,12 +142,15 @@ where
     pub fn connection_snapshot(
         &self,
         connection: ConnectionToken,
-    ) -> Result<ConnectionSlotSnapshot, EngineError> {
+    ) -> Result<ConnectionSlotSnapshot, ConnectionAccessError> {
         Ok(self.entry(connection)?.slot.snapshot())
     }
 
     /// Returns whether one exact connection has established its transport.
-    pub fn is_transport_open(&self, connection: ConnectionToken) -> Result<bool, EngineError> {
+    pub fn is_transport_open(
+        &self,
+        connection: ConnectionToken,
+    ) -> Result<bool, ConnectionAccessError> {
         Ok(self.entry(connection)?.slot.is_transport_open())
     }
 
@@ -167,50 +176,11 @@ where
         Ok(())
     }
 
-    pub(crate) fn entry(
-        &self,
-        connection: ConnectionToken,
-    ) -> Result<&ConnectionEntry<D, C>, EngineError> {
-        let (identity, entry) = self
-            .resources
-            .get(connection.resource())
-            .map_err(|_| stale())?;
-        if *identity != connection.identity() {
-            return Err(stale());
-        }
-        Ok(entry)
-    }
-
-    pub(crate) fn entry_mut(
-        &mut self,
-        connection: ConnectionToken,
-    ) -> Result<&mut ConnectionEntry<D, C>, EngineError> {
-        let (identity, entry) = self
-            .resources
-            .get_mut(connection.resource())
-            .map_err(|_| stale())?;
-        if *identity != connection.identity() {
-            return Err(stale());
-        }
-        Ok(entry)
-    }
-
-    pub(crate) fn enqueue(&mut self, resource: ResourceToken) {
-        let Ok((_, entry)) = self.resources.get_mut(resource) else {
-            return;
-        };
-        if entry.ready_queued {
-            return;
-        }
-        entry.ready_queued = true;
-        self.ready.push_back(resource);
-    }
-
     fn apply_and_enqueue(
         &mut self,
         connection: ConnectionToken,
         action: ConnectionPortAction,
-    ) -> Result<InputDisposition, EngineError> {
+    ) -> Result<InputDisposition, ConnectionAccessError> {
         let resource = connection.resource();
         let entry = self.entry_mut(connection)?;
         let result = match action {
@@ -219,10 +189,13 @@ where
         };
         self.enqueue(resource);
         match result {
-            Ok(disposition) => self.settle_connection(resource).map(|_| disposition),
+            Ok(disposition) => self
+                .settle_connection(resource)
+                .map(|_| disposition)
+                .map_err(ConnectionAccessError::Owner),
             Err(error) => {
                 let _settled = self.settle_connection(resource);
-                Err(error)
+                Err(ConnectionAccessError::Owner(error))
             }
         }
     }
@@ -232,8 +205,4 @@ where
 enum ConnectionPortAction {
     OpenAdmission,
     BeginDrain,
-}
-
-fn stale() -> EngineError {
-    EngineError::Invariant(EngineInvariant::ResourceToken)
 }

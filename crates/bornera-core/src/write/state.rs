@@ -4,6 +4,8 @@ use calandria::RetainedBytes;
 
 use crate::{ConnectionEpoch, Delivery, EffectId, FrameMeasure, OperationId};
 
+use super::WriteQueue;
+
 /// Whether one progress report crossed the conservative delivery boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WriteBoundary {
@@ -93,5 +95,13 @@ impl<F> DiscardedWrites<F> {
     /// Recovers discarded frames in original wire order.
     pub fn into_writes(self) -> Vec<DiscardedWrite<F>> {
         self.writes
+    }
+}
+
+impl<F> WriteQueue<F> {
+    pub(crate) fn front_is_empty(&self) -> bool {
+        self.frames
+            .front()
+            .is_some_and(|frame| frame.measure.wire_bytes() == 0)
     }
 }

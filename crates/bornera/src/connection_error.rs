@@ -4,7 +4,28 @@ use core::fmt;
 
 use bornera_core::{OperationPermit, ReserveError};
 
-use crate::{EngineCommitError, OwnerFailure};
+use crate::{EngineCommitError, EngineError, OwnerFailure};
+
+/// Generation fencing or fatal-owner failure during direct set access.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum ConnectionAccessError {
+    /// The supplied token no longer names its original connection generation.
+    StaleConnection,
+    /// The exact live connection or its shared readiness owner failed fatally.
+    Owner(EngineError),
+}
+
+impl fmt::Display for ConnectionAccessError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StaleConnection => formatter.write_str("connection generation is stale"),
+            Self::Owner(source) => source.fmt(formatter),
+        }
+    }
+}
+
+impl core::error::Error for ConnectionAccessError {}
 
 /// Generation fencing or core-policy rejection during set-level reservation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

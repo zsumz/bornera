@@ -28,11 +28,18 @@ pub(crate) struct TestTransport {
     policy_applications: usize,
     read_overreport: Option<usize>,
     write_overreport: Option<usize>,
+    readable: Option<&'static [u8]>,
+    write_ready: bool,
+    written_bytes: usize,
 }
 
 impl TestTransport {
     pub(crate) const fn benign() -> Self {
         Self::new(ConnectBehavior::Opened, ConnectReadiness::Once)
+    }
+
+    pub(crate) const fn connect_pending() -> Self {
+        Self::new(ConnectBehavior::Opened, ConnectReadiness::Consumed)
     }
 
     pub(crate) const fn malicious_read(extra: usize) -> Self {
@@ -45,6 +52,20 @@ impl TestTransport {
     pub(crate) const fn malicious_write(extra: usize) -> Self {
         Self {
             write_overreport: Some(extra),
+            ..Self::benign()
+        }
+    }
+
+    pub(crate) const fn readable(bytes: &'static [u8]) -> Self {
+        Self {
+            readable: Some(bytes),
+            ..Self::benign()
+        }
+    }
+
+    pub(crate) const fn writable() -> Self {
+        Self {
+            write_ready: true,
             ..Self::benign()
         }
     }
@@ -68,6 +89,10 @@ impl TestTransport {
         self.policy_applications
     }
 
+    pub(crate) const fn written_bytes(&self) -> usize {
+        self.written_bytes
+    }
+
     const fn new(connect: ConnectBehavior, connect_readiness: ConnectReadiness) -> Self {
         Self {
             open: false,
@@ -77,25 +102,38 @@ impl TestTransport {
             policy_applications: 0,
             read_overreport: None,
             write_overreport: None,
+            readable: None,
+            write_ready: false,
+            written_bytes: 0,
         }
     }
 }
 
 impl io::Read for TestTransport {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.read_overreport.map_or_else(
-            || Err(io::Error::from(io::ErrorKind::WouldBlock)),
-            |extra| Ok(buffer.len().saturating_add(extra)),
-        )
+        if let Some(extra) = self.read_overreport {
+            return Ok(buffer.len().saturating_add(extra));
+        }
+        let Some(bytes) = self.readable.take() else {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        };
+        let length = bytes.len().min(buffer.len());
+        buffer[..length].copy_from_slice(&bytes[..length]);
+        Ok(length)
     }
 }
 
 impl io::Write for TestTransport {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.write_overreport.map_or_else(
-            || Err(io::Error::from(io::ErrorKind::WouldBlock)),
-            |extra| Ok(buffer.len().saturating_add(extra)),
-        )
+        if let Some(extra) = self.write_overreport {
+            return Ok(buffer.len().saturating_add(extra));
+        }
+        if !self.write_ready {
+            return Err(io::Error::from(io::ErrorKind::WouldBlock));
+        }
+        self.write_ready = false;
+        self.written_bytes = self.written_bytes.saturating_add(buffer.len());
+        Ok(buffer.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
@@ -139,11 +177,11 @@ impl SlotTransport for TestTransport {
     }
 
     fn can_read(&self) -> bool {
-        self.open && self.read_overreport.is_some()
+        self.open && (self.read_overreport.is_some() || self.readable.is_some())
     }
 
     fn can_write(&self) -> bool {
-        self.open && self.write_overreport.is_some()
+        self.open && (self.write_overreport.is_some() || self.write_ready)
     }
 
     fn desired_interest(&self, has_writes: bool) -> Interest {

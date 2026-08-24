@@ -56,7 +56,9 @@ fn failed_generation_recovery_does_not_consume_a_healthy_peer() -> Result<(), Bo
         .ok_or_else(|| std::io::Error::other("full lifecycle owner accepted closure"))?;
     assert!(matches!(
         fatal,
-        EngineError::Invariant(EngineInvariant::LifecyclePublication(_))
+        bornera::ConnectionAccessError::Owner(EngineError::Invariant(
+            EngineInvariant::LifecyclePublication(_)
+        ))
     ));
     assert!(matches!(
         set.try_recover(healthy),
@@ -67,7 +69,10 @@ fn failed_generation_recovery_does_not_consume_a_healthy_peer() -> Result<(), Bo
     assert_eq!(report.reason, OwnerFailure::OwnerInvariant);
     assert_eq!(set.snapshot().connections.active(), 1);
     assert_eq!(set.snapshot().poller.registrations(), 1);
-    assert!(set.connection_snapshot(failed).is_err());
+    assert!(matches!(
+        set.connection_snapshot(failed),
+        Err(bornera::ConnectionAccessError::StaleConnection)
+    ));
     assert_eq!(
         set.connection_snapshot(healthy)?.transport,
         TransportState::Open
