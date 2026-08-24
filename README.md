@@ -1,4 +1,6 @@
-<h1 align="center">Bornera</h1>
+<p align="center">
+  <img src="./bornera-logo.svg" alt="bornera" width="720">
+</p>
 
 <p align="center">
   <strong>Deterministic connection ownership for native protocol clients.</strong>
