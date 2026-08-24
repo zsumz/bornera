@@ -2,7 +2,7 @@
 
 use bornera_core::FrameDecoder;
 
-use crate::{ConnectionEngine, EngineError, InboundClassifier, OwnerFailure};
+use crate::{CloseDirective, ConnectionSlot, EngineError, InboundClassifier, OwnerFailure};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum EngineState {
@@ -19,7 +19,7 @@ impl EngineState {
     }
 }
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> ConnectionSlot<D, C>
 where
     D: FrameDecoder,
     D::Frame: calandria::Retained,
@@ -50,8 +50,8 @@ where
             return;
         }
         self.state = EngineState::Failed(reason);
-        drop(self.commands.close());
-        self.command_buffer.clear();
-        self.command_more_pending = false;
+        if self.close_request.is_none() {
+            self.close_request = Some(CloseDirective::Abort);
+        }
     }
 }

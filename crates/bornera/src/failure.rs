@@ -3,9 +3,9 @@
 use bornera_core::{CloseReason, ConnectionInput, FrameDecodeError, FrameDecoder};
 use calandria::Retained;
 
-use crate::{ConnectionEngine, EngineError, InboundClassifier};
+use crate::{ConnectionSlot, EngineError, InboundClassifier};
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> ConnectionSlot<D, C>
 where
     D: FrameDecoder,
     D::Frame: Retained,
@@ -24,6 +24,7 @@ where
             FrameDecodeError::DecoderFailed | FrameDecodeError::Decoder(_) => {
                 self.close_malformed()
             }
+            _ => self.close_malformed(),
         }
     }
 

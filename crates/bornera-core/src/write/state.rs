@@ -2,37 +2,15 @@
 
 use calandria::RetainedBytes;
 
-use crate::{ConnectionEpoch, Delivery, EffectId, OperationId};
+use crate::{ConnectionEpoch, Delivery, EffectId, FrameMeasure, OperationId};
 
 /// Whether one progress report crossed the conservative delivery boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum WriteBoundary {
+pub(crate) enum WriteBoundary {
     /// The operation had already crossed or no byte progressed.
     Unchanged,
     /// The first positive byte progress occurred in this report.
     Crossed,
-}
-
-/// Complete frame ownership accepted by the ordered writer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WriteAccepted {
-    /// Owning epoch.
-    pub epoch: ConnectionEpoch,
-    /// Owning operation.
-    pub operation: OperationId,
-    /// Write effect required by progress reports.
-    pub effect: EffectId,
-    /// Complete contiguous frame bytes.
-    pub frame_bytes: usize,
-    /// Variable memory retained by the frame.
-    pub retained_bytes: RetainedBytes,
-}
-
-impl WriteAccepted {
-    /// Returns certainty before any positive write progress.
-    pub const fn delivery(self) -> Delivery {
-        Delivery::NotSent
-    }
 }
 
 /// Borrowed bytes from only the FIFO queue front.
@@ -50,19 +28,13 @@ pub struct WriteSlice<'a> {
 
 /// Result of applying exact progress to the FIFO front.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum WriteProgress<F> {
+pub(crate) enum WriteProgress<F> {
     /// The same frame remains at the FIFO front.
     Pending {
         /// Owning operation.
         operation: OperationId,
-        /// Owning effect.
-        effect: EffectId,
-        /// Bytes remaining in the complete frame.
-        remaining: usize,
         /// Whether this report crossed the delivery boundary.
         boundary: WriteBoundary,
-        /// Current conservative delivery certainty.
-        delivery: Delivery,
     },
     /// The complete frame left write ownership.
     Complete {
@@ -72,6 +44,8 @@ pub enum WriteProgress<F> {
         effect: EffectId,
         /// Original complete frame.
         frame: F,
+        /// Commit-time wire and retained-memory measurement.
+        measure: FrameMeasure,
         /// Whether this report crossed the delivery boundary.
         boundary: WriteBoundary,
         /// Current conservative delivery certainty.
@@ -81,6 +55,7 @@ pub enum WriteProgress<F> {
 
 /// One frame removed before normal write completion.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct DiscardedWrite<F> {
     /// Owning operation.
     pub operation: OperationId,
@@ -88,6 +63,8 @@ pub struct DiscardedWrite<F> {
     pub effect: EffectId,
     /// Original complete frame.
     pub frame: F,
+    /// Wire and retained-memory measurement captured at commit.
+    pub measure: FrameMeasure,
     /// Exact bytes that had progressed before removal.
     pub written: usize,
     /// Conservative delivery certainty at removal.
@@ -96,6 +73,7 @@ pub struct DiscardedWrite<F> {
 
 /// Bounded frames removed together when an epoch closes.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct DiscardedWrites<F> {
     pub(crate) writes: Vec<DiscardedWrite<F>>,
     pub(crate) retained_bytes: RetainedBytes,

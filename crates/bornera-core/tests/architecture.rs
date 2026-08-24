@@ -1,4 +1,4 @@
-//! Executable evidence for Bornera's initial architecture boundaries.
+//! Executable evidence for Bornera's architecture boundaries.
 
 use std::{
     error::Error,
@@ -22,7 +22,8 @@ const CORE_FORBIDDEN: &[&str] = &[
 ];
 
 #[test]
-fn workspace_dependencies_point_inward() -> Result<(), Box<dyn Error>> {
+fn core_dependencies_point_inward_and_simulation_reuses_production_slot()
+-> Result<(), Box<dyn Error>> {
     let root = repository_root()?;
     let core = fs::read_to_string(root.join("crates/bornera-core/Cargo.toml"))?;
     let simulation = fs::read_to_string(root.join("crates/bornera-sim/Cargo.toml"))?;
@@ -30,8 +31,11 @@ fn workspace_dependencies_point_inward() -> Result<(), Box<dyn Error>> {
     if core.contains("bornera =") || core.contains("bornera-sim =") {
         return Err(std::io::Error::other("bornera-core depends on an adapter package").into());
     }
-    if simulation.contains("bornera =") {
-        return Err(std::io::Error::other("bornera-sim depends on the production package").into());
+    if !simulation.contains("bornera.workspace = true") {
+        return Err(std::io::Error::other(
+            "bornera-sim does not exercise the production connection slot",
+        )
+        .into());
     }
     Ok(())
 }
@@ -75,7 +79,7 @@ fn connection_core_is_the_only_public_mutation_owner() -> Result<(), Box<dyn Err
 }
 
 #[test]
-fn empty_simulation_crate_cannot_publish() -> Result<(), Box<dyn Error>> {
+fn simulation_crate_remains_unpublished() -> Result<(), Box<dyn Error>> {
     let root = repository_root()?;
     let simulation = fs::read_to_string(root.join("crates/bornera-sim/Cargo.toml"))?;
     assert!(simulation.contains("publish = false"));

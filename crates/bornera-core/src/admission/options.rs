@@ -4,13 +4,23 @@ use calandria::{Deadline, RetainedBytes};
 
 use super::AdmissionClass;
 
+/// Mechanical condition that releases an accepted operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompletionMode {
+    /// Retain the operation after writing until a matching reply arrives.
+    ReplyExpected,
+    /// Complete once the full frame leaves local write ownership.
+    WriteComplete,
+}
+
 /// Mechanical resources and timing attached to one operation reservation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OperationOptions {
     deadline: Deadline,
     class: AdmissionClass,
     retained_bytes: RetainedBytes,
-    write_bytes: RetainedBytes,
+    write_retained_bytes: RetainedBytes,
+    completion_mode: CompletionMode,
 }
 
 impl OperationOptions {
@@ -20,7 +30,8 @@ impl OperationOptions {
             deadline,
             class: AdmissionClass::Regular,
             retained_bytes: RetainedBytes::ZERO,
-            write_bytes: RetainedBytes::ZERO,
+            write_retained_bytes: RetainedBytes::ZERO,
+            completion_mode: CompletionMode::ReplyExpected,
         }
     }
 
@@ -38,10 +49,17 @@ impl OperationOptions {
         self
     }
 
-    /// Reserves the maximum complete encoded frame size.
+    /// Reserves the maximum memory retained by the complete outbound frame.
     #[must_use]
-    pub const fn write_bytes(mut self, write_bytes: RetainedBytes) -> Self {
-        self.write_bytes = write_bytes;
+    pub const fn write_retained_bytes(mut self, retained_bytes: RetainedBytes) -> Self {
+        self.write_retained_bytes = retained_bytes;
+        self
+    }
+
+    /// Selects whether this operation waits for a reply or completes on write.
+    #[must_use]
+    pub const fn completion_mode(mut self, completion_mode: CompletionMode) -> Self {
+        self.completion_mode = completion_mode;
         self
     }
 
@@ -60,8 +78,13 @@ impl OperationOptions {
         self.retained_bytes
     }
 
-    /// Returns reserved encoded-frame bytes.
-    pub const fn write(self) -> RetainedBytes {
-        self.write_bytes
+    /// Returns reserved complete-frame retained memory.
+    pub const fn write_retained(self) -> RetainedBytes {
+        self.write_retained_bytes
+    }
+
+    /// Returns the mechanical completion condition.
+    pub const fn completion(self) -> CompletionMode {
+        self.completion_mode
     }
 }

@@ -12,18 +12,16 @@ use std::{
 };
 
 use bornera::{
-    ConnectionEngine, ConnectionEvent, EngineInvariant, OutboundFrame, OwnerFailure, TransportState,
+    ConnectionEvent, EngineInvariant, OutboundFrame, OwnerFailure, StandaloneConnection,
+    TransportState,
 };
 use bornera_core::{
     CloseReason, Delivery, FrameDecoder, OperationOptions, RetainedBytes as CoreRetainedBytes,
 };
 use calandria::{Deadline, Moment, Next, RetainedBytes, Span};
 
-use support::{
-    DecodeError, FRAME_BYTES, KeyClassifier, TestEngine, TestFrame, engine, engine_parts,
-    engine_parts_with_events, request,
-};
-
+use support::framing::{DecodeError, FRAME_BYTES, KeyClassifier, TestFrame, request};
+use support::{TestEngine, engine, engine_parts, engine_parts_with_events};
 #[test]
 fn lifecycle_edges_are_separate_sequenced_and_snapshot_backed() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
@@ -38,7 +36,7 @@ fn lifecycle_edges_are_separate_sequenced_and_snapshot_backed() -> Result<(), Bo
     run_until_open(&mut engine)?;
     engine.open_admission()?;
     engine.finalize(CloseReason::Requested)?;
-    let events: Vec<_> = engine.drain_events().collect();
+    let events: Vec<_> = engine.drain_events()?.collect();
     assert!(matches!(
         events.as_slice(),
         [
@@ -56,7 +54,7 @@ fn lifecycle_edges_are_separate_sequenced_and_snapshot_backed() -> Result<(), Bo
             },
         ]
     ));
-    let snapshot = engine.snapshot();
+    let snapshot = engine.snapshot()?;
     assert_eq!(snapshot.event_sequence, 4);
     assert_eq!(snapshot.pending_events, 0);
     assert_eq!(
@@ -103,10 +101,10 @@ fn recovery_retains_terminal_outcomes_and_rejected_lifecycle_edges() -> Result<(
     });
     let capacity = NonZeroUsize::new(2).ok_or(std::io::Error::other("zero event capacity"))?;
     let (config, limits) = engine_parts_with_events(address, capacity)?;
-    let mut engine = ConnectionEngine::connect(
+    let mut engine = StandaloneConnection::connect(
         config,
         limits,
-        support::FixedDecoder { bytes: Vec::new() },
+        support::framing::FixedDecoder { bytes: Vec::new() },
         KeyClassifier,
     )?;
     run_until_open(&mut engine)?;
@@ -178,7 +176,7 @@ fn next_frame_errors_use_mechanical_close_reasons() -> Result<(), Box<dyn Error>
     let address = listener.local_addr()?;
     let server = thread::spawn(move || listener.accept()?.0.write_all(&[1]));
     let (config, limits) = engine_parts(address)?;
-    let mut engine = ConnectionEngine::connect(
+    let mut engine = StandaloneConnection::connect(
         config,
         limits,
         ViolatingDecoder {
@@ -189,7 +187,7 @@ fn next_frame_errors_use_mechanical_close_reasons() -> Result<(), Box<dyn Error>
     )?;
     run_until_stopped(&mut engine)?;
     assert_eq!(
-        engine.snapshot().connection.close_reason,
+        engine.snapshot()?.connection.close_reason,
         Some(CloseReason::InboundRetainedCapacity)
     );
     join(server)?;
@@ -197,7 +195,7 @@ fn next_frame_errors_use_mechanical_close_reasons() -> Result<(), Box<dyn Error>
     let address = listener.local_addr()?;
     let server = thread::spawn(move || listener.accept()?.0.write_all(&[1]));
     let (config, limits) = engine_parts(address)?;
-    let mut engine = ConnectionEngine::connect(
+    let mut engine = StandaloneConnection::connect(
         config,
         limits,
         ViolatingDecoder {
@@ -208,7 +206,7 @@ fn next_frame_errors_use_mechanical_close_reasons() -> Result<(), Box<dyn Error>
     )?;
     run_until_stopped(&mut engine)?;
     assert_eq!(
-        engine.snapshot().connection.close_reason,
+        engine.snapshot()?.connection.close_reason,
         Some(CloseReason::MalformedReply)
     );
     join(server)?;
@@ -250,13 +248,13 @@ fn options() -> OperationOptions {
     OperationOptions::until(Deadline::at(Moment::from_nanos(u64::MAX)))
         .session()
         .retained_bytes(RetainedBytes::new(FRAME_BYTES as u64))
-        .write_bytes(RetainedBytes::new(FRAME_BYTES as u64))
+        .write_retained_bytes(RetainedBytes::new(FRAME_BYTES as u64))
 }
 
 fn run_until_open(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
     for _ in 0..128 {
         engine.turn_component(Moment::ORIGIN)?;
-        if engine.is_transport_open() {
+        if engine.is_transport_open()? {
             return Ok(());
         }
         engine.poll_io(Span::from_nanos(10_000_000))?;
@@ -267,7 +265,7 @@ fn run_until_open(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
 fn run_until_written(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
     for _ in 0..128 {
         engine.turn_component(Moment::ORIGIN)?;
-        if engine.snapshot().queued_write_frames == 0 {
+        if engine.snapshot()?.queued_write_frames == 0 {
             return Ok(());
         }
         engine.poll_io(Span::from_nanos(10_000_000))?;
@@ -276,7 +274,7 @@ fn run_until_written(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
 }
 
 fn run_until_stopped<D>(
-    engine: &mut ConnectionEngine<D, KeyClassifier>,
+    engine: &mut StandaloneConnection<D, KeyClassifier>,
 ) -> Result<(), Box<dyn Error>>
 where
     D: FrameDecoder<Frame = TestFrame, Error = DecodeError>,

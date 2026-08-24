@@ -2,7 +2,7 @@
 schema = 1
 semantics = 2
 producer = "0.0.2"
-contract_sha256 = "3bee86ca7c06aed7545da33d041a09139066af8f88cc9a26668d8f8a85e08366"
+contract_sha256 = "6be3df6eff3b59be052f7e4741477b545a43b7d9157b2ca1c8b8924ceea85fc7"
 ratchet = []
 
 [[package]]
@@ -20,7 +20,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera-core"
-requirement = "=0.0.1-rc.1"
+requirement = "=0.0.1-rc.2"
 
 [[package.dependency]]
 alias = "bytes"
@@ -37,6 +37,7 @@ requirement = "1.11.1"
 [[package.dependency]]
 alias = "calandria"
 name = "calandria"
+crate_root = "calandria"
 kind = "normal"
 scope = "external"
 optional = false
@@ -45,7 +46,7 @@ features = ["std"]
 
 [package.dependency.source]
 kind = "registry"
-requirement = "=0.0.1-rc.1"
+requirement = "=0.0.1-rc.2"
 
 [[package.dependency]]
 alias = "calandria-mio"
@@ -58,7 +59,7 @@ default_features = true
 
 [package.dependency.source]
 kind = "registry"
-requirement = "=0.0.1-rc.1"
+requirement = "=0.0.1-rc.2"
 
 [[package.dependency]]
 alias = "mio"
@@ -74,12 +75,26 @@ features = ["net"]
 kind = "registry"
 requirement = "1.2.2"
 
+[[package.dependency]]
+alias = "socket2"
+name = "socket2"
+crate_root = "socket2"
+kind = "normal"
+scope = "external"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "registry"
+requirement = "0.6.5"
+
 [[package]]
 name = "bornera-core"
 
 [[package.dependency]]
 alias = "calandria"
 name = "calandria"
+crate_root = "calandria"
 kind = "normal"
 scope = "external"
 optional = false
@@ -87,8 +102,61 @@ default_features = false
 
 [package.dependency.source]
 kind = "registry"
-requirement = "=0.0.1-rc.1"
+requirement = "=0.0.1-rc.2"
 
 [[package]]
 name = "bornera-sim"
-dependency = []
+
+[[package.dependency]]
+alias = "bornera"
+name = "bornera"
+crate_root = "bornera"
+kind = "normal"
+scope = "internal"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "workspace-member"
+directory = "crates/bornera"
+requirement = "=0.0.1-rc.2"
+
+[[package.dependency]]
+alias = "bornera-core"
+name = "bornera-core"
+crate_root = "bornera_core"
+kind = "normal"
+scope = "internal"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "workspace-member"
+directory = "crates/bornera-core"
+requirement = "=0.0.1-rc.2"
+
+[[package.dependency]]
+alias = "calandria"
+name = "calandria"
+crate_root = "calandria"
+kind = "normal"
+scope = "external"
+optional = false
+default_features = false
+
+[package.dependency.source]
+kind = "registry"
+requirement = "=0.0.1-rc.2"
+
+[[package.dependency]]
+alias = "calandria-sim"
+name = "calandria-sim"
+crate_root = "calandria_sim"
+kind = "normal"
+scope = "external"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "registry"
+requirement = "=0.0.1-rc.2"

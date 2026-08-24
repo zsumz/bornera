@@ -6,9 +6,9 @@ use bornera_core::{
 };
 use calandria::{Moment, Retained};
 
-use crate::{ConnectionEngine, EngineCommitError, InboundClassifier, OutboundFrame, OwnerFailure};
+use crate::{ConnectionSlot, EngineCommitError, InboundClassifier, OutboundFrame, OwnerFailure};
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> ConnectionSlot<D, C>
 where
     D: FrameDecoder,
     D::Frame: Retained,

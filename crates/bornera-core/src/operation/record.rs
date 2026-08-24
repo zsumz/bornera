@@ -2,7 +2,7 @@
 
 use calandria::Deadline;
 
-use crate::{Delivery, EffectId, OperationId, OperationPhase};
+use crate::{CompletionMode, Delivery, EffectId, OperationId, OperationPhase};
 
 use crate::admission::Reservation;
 
@@ -13,6 +13,7 @@ pub(crate) struct OperationRecord {
     pub(crate) deadline: Deadline,
     pub(crate) reservation: Reservation,
     pub(crate) phase: OperationPhase,
+    pub(crate) completion: CompletionMode,
     pub(crate) delivery: Delivery,
     pub(crate) write_held: bool,
 }

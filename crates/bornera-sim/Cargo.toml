@@ -13,5 +13,11 @@ description = "Deterministic network simulation for Bornera connection policies.
 keywords = ["networking", "simulation", "testing", "deterministic"]
 categories = ["development-tools::testing", "network-programming"]
 
+[dependencies]
+bornera.workspace = true
+bornera-core.workspace = true
+calandria.workspace = true
+calandria-sim.workspace = true
+
 [lints]
 workspace = true

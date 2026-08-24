@@ -2,7 +2,9 @@
 
 use std::{error::Error, fs, path::PathBuf};
 
-use bornera::{ConnectionEngine, ConnectionWaiter, EngineError, InboundClassifier};
+use bornera::{
+    ConnectionSet, ConnectionWaiter, EngineError, InboundClassifier, StandaloneConnection,
+};
 use bornera_core::FrameDecoder;
 use calandria::{Duty, Retained, Waiter};
 
@@ -13,8 +15,10 @@ fn engine_and_waiter_use_calandria_host_contracts() {
         D: FrameDecoder,
         D::Frame: Retained,
         C: InboundClassifier<D::Frame>,
-        ConnectionEngine<D, C>: Duty<Error = EngineError>,
-        ConnectionWaiter: Waiter<ConnectionEngine<D, C>, Error = EngineError>,
+        ConnectionSet<D, C>: Duty<Error = EngineError>,
+        ConnectionWaiter: Waiter<ConnectionSet<D, C>, Error = EngineError>,
+        StandaloneConnection<D, C>: Duty<Error = EngineError>,
+        ConnectionWaiter: Waiter<StandaloneConnection<D, C>, Error = EngineError>,
     {
     }
 
@@ -26,13 +30,13 @@ fn mio_tcp_remains_a_private_native_capability() -> Result<(), Box<dyn Error>> {
     let root = repository_root()?;
     let manifest = fs::read_to_string(root.join("crates/bornera/Cargo.toml"))?;
     let facade = fs::read_to_string(root.join("crates/bornera/src/lib.rs"))?;
-    let engine = fs::read_to_string(root.join("crates/bornera/src/engine.rs"))?;
+    let connection_set = fs::read_to_string(root.join("crates/bornera/src/set.rs"))?;
 
     assert!(manifest.contains("calandria-mio.workspace = true"));
     assert!(manifest.contains("mio.workspace = true"));
     assert!(!facade.contains("pub use mio"));
-    assert!(!engine.contains("std::thread"));
-    assert!(!engine.contains("std::time::Instant"));
+    assert!(!connection_set.contains("std::thread"));
+    assert!(!connection_set.contains("std::time::Instant"));
     for entry in fs::read_dir(root.join("crates/bornera/src"))? {
         let path = entry?.path();
         if path.extension().is_some_and(|extension| extension == "rs") {

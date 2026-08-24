@@ -8,6 +8,7 @@ use crate::operation::OperationRecord;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct JournalOperation {
+    pub(super) wire_index: usize,
     pub(super) operation: OperationId,
     pub(super) effect: EffectId,
     pub(super) delivery: Delivery,
@@ -51,19 +52,11 @@ impl<F> RecoveryJournal<F> {
 
     pub(super) fn begin<'a>(&mut self, records: impl Iterator<Item = &'a OperationRecord>) -> bool {
         self.clear();
-        for record in records {
-            let Some(slot) = self.operations.get_mut(self.operation_len) else {
+        for (wire_index, record) in records.enumerate() {
+            if !self.retain_operation(record, wire_index) {
                 self.clear();
                 return false;
-            };
-            *slot = Some(JournalOperation {
-                operation: record.id,
-                effect: record.effect,
-                delivery: record.delivery,
-                phase: record.phase,
-                write_held: record.write_held,
-            });
-            self.operation_len += 1;
+            }
         }
         self.armed = true;
         true
@@ -72,6 +65,28 @@ impl<F> RecoveryJournal<F> {
     pub(super) fn begin_write_progress(&mut self) {
         self.clear();
         self.armed = true;
+    }
+
+    pub(super) fn begin_operation(&mut self, record: &OperationRecord, wire_index: usize) -> bool {
+        self.clear();
+        self.armed = true;
+        self.retain_operation(record, wire_index)
+    }
+
+    pub(super) fn retain_operation(&mut self, record: &OperationRecord, wire_index: usize) -> bool {
+        let Some(slot) = self.operations.get_mut(self.operation_len) else {
+            return false;
+        };
+        *slot = Some(JournalOperation {
+            wire_index,
+            operation: record.id,
+            effect: record.effect,
+            delivery: record.delivery,
+            phase: record.phase,
+            write_held: record.write_held,
+        });
+        self.operation_len += 1;
+        true
     }
 
     pub(super) fn retain_write(&mut self, write: DiscardedWrite<F>) -> bool {

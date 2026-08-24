@@ -72,11 +72,12 @@ fn commit(
         OperationOptions::until(Deadline::at(Moment::from_nanos(10)))
             .session()
             .retained_bytes(retained)
-            .write_bytes(retained),
+            .write_retained_bytes(retained),
     )?;
-    owner.commit(permit, frame)?;
+    let (_operation, _transition) = owner.commit(permit, frame)?;
     owner
         .front_write(NonZeroUsize::MAX)
+        .map_err(|error| -> Box<dyn Error> { Box::new(error) })?
         .map(|front| front.effect)
         .ok_or_else(|| std::io::Error::other("aggregate retained no write front").into())
 }
@@ -88,16 +89,16 @@ fn arbitrary_and_empty_complete_frames_have_no_protocol_minimum() -> Result<(), 
     commit(&mut owner, TestFrame::new(&[]))?;
     assert_eq!(
         owner
-            .front_write(NonZeroUsize::MAX)
+            .front_write(NonZeroUsize::MAX)?
             .map(|front| front.bytes),
         Some(&[9][..])
     );
-    owner.advance_write(EPOCH, first, 1)?;
+    let _transition = owner.advance_write(EPOCH, first, 1)?;
     let empty = owner
-        .front_write(NonZeroUsize::MAX)
+        .front_write(NonZeroUsize::MAX)?
         .ok_or_else(|| std::io::Error::other("empty frame was not retained"))?;
     assert!(empty.bytes.is_empty());
-    owner.advance_write(EPOCH, empty.effect, 0)?;
+    let _transition = owner.advance_write(EPOCH, empty.effect, 0)?;
     assert_eq!(owner.queued_write_frames(), 0);
     Ok(())
 }
@@ -109,21 +110,21 @@ fn partial_progress_crosses_delivery_once_and_preserves_fifo() -> Result<(), Box
     commit(&mut owner, TestFrame::new(&[5]))?;
     assert_eq!(
         owner
-            .front_write(NonZeroUsize::new(2).ok_or_else(|| std::io::Error::other("zero"))?)
+            .front_write(NonZeroUsize::new(2).ok_or_else(|| std::io::Error::other("zero"))?)?
             .map(|front| front.bytes),
         Some(&[1, 2][..])
     );
-    owner.advance_write(EPOCH, first, 2)?;
+    let _transition = owner.advance_write(EPOCH, first, 2)?;
     assert_eq!(
         owner
-            .front_write(NonZeroUsize::MAX)
+            .front_write(NonZeroUsize::MAX)?
             .map(|front| front.bytes),
         Some(&[3, 4][..])
     );
-    owner.advance_write(EPOCH, first, 2)?;
+    let _transition = owner.advance_write(EPOCH, first, 2)?;
     assert_eq!(
         owner
-            .front_write(NonZeroUsize::MAX)
+            .front_write(NonZeroUsize::MAX)?
             .map(|front| front.bytes),
         Some(&[5][..])
     );
@@ -131,8 +132,7 @@ fn partial_progress_crosses_delivery_once_and_preserves_fifo() -> Result<(), Box
 }
 
 #[test]
-fn invalid_epoch_effect_and_progress_leave_the_fifo_front_unchanged() -> Result<(), Box<dyn Error>>
-{
+fn invalid_epoch_and_effect_leave_the_fifo_front_unchanged() -> Result<(), Box<dyn Error>> {
     let mut owner = owner(2, 16)?;
     let effect = commit(&mut owner, TestFrame::new(&[1, 2, 3]))?;
     assert!(matches!(
@@ -147,18 +147,37 @@ fn invalid_epoch_effect_and_progress_leave_the_fifo_front_unchanged() -> Result<
             WriteProgressError::OutOfOrderEffect { .. }
         ))
     ));
-    assert!(matches!(
-        owner.advance_write(EPOCH, effect, 4),
-        Err(ConnectionCoreError::Write(
-            WriteProgressError::ExceedsRemaining { .. }
-        ))
-    ));
     assert_eq!(
         owner
-            .front_write(NonZeroUsize::MAX)
+            .front_write(NonZeroUsize::MAX)?
             .map(|front| front.bytes),
         Some(&[1, 2, 3][..])
     );
+    Ok(())
+}
+
+#[test]
+fn positive_progress_overreport_poisoning_preserves_possible_send() -> Result<(), Box<dyn Error>> {
+    let mut owner = owner(1, 16)?;
+    let effect = commit(&mut owner, TestFrame::new(&[1, 2, 3]))?;
+
+    assert!(matches!(
+        owner.advance_write(EPOCH, effect, 4),
+        Err(ConnectionCoreError::Invariant(
+            bornera_core::ConnectionCoreInvariant::WriteProgressContract {
+                written: 4,
+                remaining: 3,
+            }
+        ))
+    ));
+    let recovery = owner.recover();
+    assert_eq!(recovery.operations.len(), 1);
+    assert_eq!(recovery.operations[0].delivery, Delivery::PossiblySent);
+    assert_eq!(
+        recovery.operations[0].frame,
+        Some(TestFrame::new(&[1, 2, 3]))
+    );
+    assert!(recovery.ownership_diverged);
     Ok(())
 }
 
@@ -169,7 +188,7 @@ fn byte_rejection_returns_the_exact_unsent_frame() -> Result<(), Box<dyn Error>>
         Moment::ORIGIN,
         OperationOptions::until(Deadline::at(Moment::from_nanos(10)))
             .session()
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let frame = TestFrame::retaining(&[1], 4);
     let error = owner
@@ -193,7 +212,7 @@ fn close_cleanup_releases_all_frames_with_conservative_delivery() -> Result<(), 
     let mut owner = owner(2, 16)?;
     let first = commit(&mut owner, TestFrame::new(&[1, 2, 3]))?;
     commit(&mut owner, TestFrame::new(&[4, 5]))?;
-    owner.advance_write(EPOCH, first, 2)?;
+    let _transition = owner.advance_write(EPOCH, first, 2)?;
 
     let closed = owner.apply(ConnectionInput::CloseRequested {
         epoch: EPOCH,
@@ -212,6 +231,6 @@ fn close_cleanup_releases_all_frames_with_conservative_delivery() -> Result<(), 
         .collect();
     assert_eq!(deliveries, [Delivery::PossiblySent, Delivery::NotSent]);
     assert_eq!(owner.queued_write_frames(), 0);
-    assert_eq!(owner.buffered_write_bytes(), RetainedBytes::ZERO);
+    assert_eq!(owner.buffered_write_retained_bytes(), RetainedBytes::ZERO);
     Ok(())
 }

@@ -13,7 +13,7 @@ impl ConnectionMachine {
     pub(crate) fn commit_failure(
         &self,
         permit: &crate::OperationPermit,
-        frame_bytes: RetainedBytes,
+        frame_retained: RetainedBytes,
     ) -> Option<CommitErrorKind> {
         if !Rc::ptr_eq(&self.ledger, &permit.ledger) || permit.epoch != self.epoch {
             return Some(CommitErrorKind::ForeignPermit);
@@ -21,7 +21,7 @@ impl ConnectionMachine {
         if !self.gate.admits(permit.class) {
             return Some(CommitErrorKind::AdmissionClosed);
         }
-        if frame_bytes > permit.reservation.write_bytes {
+        if frame_retained > permit.reservation.write_retained_bytes {
             return Some(CommitErrorKind::FrameTooLarge);
         }
         None
@@ -30,9 +30,9 @@ impl ConnectionMachine {
     pub(crate) fn commit_permit(
         &mut self,
         mut permit: crate::OperationPermit,
-        frame_bytes: RetainedBytes,
+        frame_retained: RetainedBytes,
     ) -> (OperationId, ConnectionTransition) {
-        permit.commit(frame_bytes);
+        permit.commit(frame_retained);
         let operation = permit.operation;
         let record = OperationRecord {
             id: operation,
@@ -40,6 +40,7 @@ impl ConnectionMachine {
             deadline: permit.deadline,
             reservation: permit.reservation,
             phase: OperationPhase::Queued,
+            completion: permit.completion,
             delivery: Delivery::NotSent,
             write_held: true,
         };

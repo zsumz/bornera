@@ -1,15 +1,17 @@
 //! Conservative ownership recovery after a deterministic owner can no longer be driven.
 
 use crate::{
-    ConnectionCore, ConnectionEpoch, Delivery, DiscardedWrite, EffectId, OperationId,
-    OperationPhase, WriteFrame,
+    ConnectionCore, ConnectionEpoch, Delivery, DiscardedWrite, OperationId, OperationPhase,
+    WriteFrame,
 };
 
 use super::journal::JournalOperation;
+use super::recovery_item::{recover_journal_operation, take_write, weaken};
 use crate::operation::OperationRecord;
 
 /// One nonterminal accepted operation recovered from a failed owner.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct RecoveredOperation<F> {
     /// Accepted operation identity.
     pub operation: OperationId,
@@ -21,6 +23,7 @@ pub struct RecoveredOperation<F> {
 
 /// Bounded recovery contents for one fixed connection epoch.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ConnectionRecovery<F> {
     /// Exact epoch that permanently owned the operations.
     pub epoch: ConnectionEpoch,
@@ -50,8 +53,76 @@ impl<F: WriteFrame> ConnectionCore<F> {
         let mut operations = Vec::with_capacity(capacity);
         let mut ownership_diverged = journal_armed || !journal_operations.is_empty();
 
-        if journal_armed {
-            for journal_record in journal_operations {
+        self.recover_in_wire_order(
+            journal_operations,
+            &mut current_records,
+            &mut writes,
+            &mut operations,
+            &mut ownership_diverged,
+        );
+        if !writes.is_empty() {
+            ownership_diverged = true;
+        }
+        if self.machine.ledger.borrow().poisoned() {
+            ownership_diverged = true;
+        }
+        if self.poisoned.get().is_none() {
+            self.poisoned
+                .set(Some(crate::ConnectionCoreInvariant::Recovered));
+        }
+        ConnectionRecovery {
+            epoch,
+            operations,
+            unmatched_writes: writes,
+            ownership_diverged,
+        }
+    }
+
+    fn recover_in_wire_order(
+        &mut self,
+        journal_operations: Vec<JournalOperation>,
+        current_records: &mut [Option<OperationRecord>],
+        writes: &mut Vec<DiscardedWrite<F>>,
+        operations: &mut Vec<RecoveredOperation<F>>,
+        ownership_diverged: &mut bool,
+    ) {
+        let journal_ids: Vec<_> = journal_operations
+            .iter()
+            .map(|record| record.operation)
+            .collect();
+        let missing = journal_operations
+            .iter()
+            .filter(|journal| {
+                !current_records.iter().any(|current| {
+                    current
+                        .as_ref()
+                        .is_some_and(|current| current.id == journal.operation)
+                })
+            })
+            .count();
+        let original_len = current_records.len().saturating_add(missing);
+        if journal_operations
+            .iter()
+            .any(|record| record.wire_index >= original_len)
+        {
+            *ownership_diverged = true;
+        }
+        let mut journal: Vec<_> = journal_operations.into_iter().map(Some).collect();
+
+        for wire_index in 0..original_len {
+            let mut recovered_journal = false;
+            while let Some(index) = journal.iter().position(|record| {
+                record
+                    .as_ref()
+                    .is_some_and(|record| record.wire_index == wire_index)
+            }) {
+                if recovered_journal {
+                    *ownership_diverged = true;
+                }
+                recovered_journal = true;
+                let Some(journal_record) = journal[index].take() else {
+                    continue;
+                };
                 let current = current_records
                     .iter_mut()
                     .find(|record| {
@@ -62,45 +133,43 @@ impl<F: WriteFrame> ConnectionCore<F> {
                     .and_then(Option::take);
                 if let Some(current) = current {
                     if current.effect != journal_record.effect {
-                        ownership_diverged = true;
+                        *ownership_diverged = true;
                     }
-                    self.recover_current_operation(
-                        current,
-                        &mut writes,
-                        &mut operations,
-                        &mut ownership_diverged,
-                    );
+                    self.recover_current_operation(current, writes, operations, ownership_diverged);
                 } else {
                     recover_journal_operation(
                         journal_record,
-                        &mut writes,
-                        &mut operations,
-                        &mut ownership_diverged,
+                        writes,
+                        operations,
+                        ownership_diverged,
                     );
                 }
             }
+            if recovered_journal {
+                continue;
+            }
+            let current = current_records
+                .iter_mut()
+                .find(|record| {
+                    record
+                        .as_ref()
+                        .is_some_and(|record| !journal_ids.contains(&record.id))
+                })
+                .and_then(Option::take);
+            let Some(current) = current else {
+                *ownership_diverged = true;
+                continue;
+            };
+            self.recover_current_operation(current, writes, operations, ownership_diverged);
         }
-        for record in current_records.into_iter().flatten() {
-            self.recover_current_operation(
-                record,
-                &mut writes,
-                &mut operations,
-                &mut ownership_diverged,
-            );
+
+        for current in current_records.iter_mut().filter_map(Option::take) {
+            *ownership_diverged = true;
+            self.recover_current_operation(current, writes, operations, ownership_diverged);
         }
-        if !writes.is_empty() {
-            ownership_diverged = true;
-        }
-        if self.machine.ledger.borrow().poisoned() {
-            ownership_diverged = true;
-        }
-        self.poisoned
-            .get_or_insert(crate::ConnectionCoreInvariant::Recovered);
-        ConnectionRecovery {
-            epoch,
-            operations,
-            unmatched_writes: writes,
-            ownership_diverged,
+        for journal_record in journal.into_iter().flatten() {
+            *ownership_diverged = true;
+            recover_journal_operation(journal_record, writes, operations, ownership_diverged);
         }
     }
 
@@ -129,47 +198,5 @@ impl<F: WriteFrame> ConnectionCore<F> {
             .ledger
             .borrow_mut()
             .release_operation(record.reservation, record.write_held);
-    }
-}
-
-fn recover_journal_operation<F>(
-    record: JournalOperation,
-    writes: &mut Vec<crate::DiscardedWrite<F>>,
-    operations: &mut Vec<RecoveredOperation<F>>,
-    ownership_diverged: &mut bool,
-) {
-    if record.phase == OperationPhase::Terminal {
-        return;
-    }
-    let write = take_write(writes, record.operation, record.effect);
-    if record.write_held != write.is_some() {
-        *ownership_diverged = true;
-    }
-    let (delivery, frame) = write.map_or((record.delivery, None), |write| {
-        (weaken(record.delivery, write.delivery), Some(write.frame))
-    });
-    operations.push(RecoveredOperation {
-        operation: record.operation,
-        delivery,
-        frame,
-    });
-}
-
-fn take_write<F>(
-    writes: &mut Vec<crate::DiscardedWrite<F>>,
-    operation: OperationId,
-    effect: EffectId,
-) -> Option<crate::DiscardedWrite<F>> {
-    let index = writes
-        .iter()
-        .position(|write| write.operation == operation && write.effect == effect)?;
-    Some(writes.remove(index))
-}
-
-const fn weaken(policy: Delivery, writer: Delivery) -> Delivery {
-    if matches!(policy, Delivery::PossiblySent) || matches!(writer, Delivery::PossiblySent) {
-        Delivery::PossiblySent
-    } else {
-        Delivery::NotSent
     }
 }

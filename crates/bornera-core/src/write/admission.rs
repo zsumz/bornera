@@ -5,8 +5,8 @@ use calandria::RetainedBytes;
 use crate::{ConnectionEpoch, EffectId, OperationId};
 
 use super::{
-    WriteAccepted, WriteAdmissionError, WriteAdmissionFailure, WriteFrame, WriteIdentityKind,
-    WriteQueue, queue::QueuedWrite,
+    FrameMeasure, WriteAdmissionError, WriteAdmissionFailure, WriteFrame, WriteIdentityKind,
+    WriteQueue, queued::QueuedWrite,
 };
 
 impl<F: WriteFrame> WriteQueue<F> {
@@ -16,9 +16,10 @@ impl<F: WriteFrame> WriteQueue<F> {
         epoch: ConnectionEpoch,
         operation: OperationId,
         effect: EffectId,
+        measure: FrameMeasure,
         frame: F,
-    ) -> Result<WriteAccepted, WriteAdmissionError<F>> {
-        let incoming = frame.retained_bytes();
+    ) -> Result<(), WriteAdmissionError<F>> {
+        let incoming = measure.retained_bytes();
         if let Some(failure) = self.admission_failure(epoch, operation, effect, incoming) {
             return Err(WriteAdmissionError::new(failure, frame));
         }
@@ -32,23 +33,16 @@ impl<F: WriteFrame> WriteQueue<F> {
                 frame,
             ));
         };
-        let accepted = WriteAccepted {
-            epoch,
-            operation,
-            effect,
-            frame_bytes: frame.bytes().len(),
-            retained_bytes: incoming,
-        };
         self.frames.push_back(QueuedWrite {
             operation,
             effect,
             frame,
-            retained_bytes: incoming,
+            measure,
             written: 0,
             started: false,
         });
         self.retained_bytes = retained_bytes;
-        Ok(accepted)
+        Ok(())
     }
 
     fn admission_failure(
@@ -64,12 +58,12 @@ impl<F: WriteFrame> WriteQueue<F> {
                 received: epoch,
             });
         }
-        if self.frames.iter().any(|frame| frame.operation == operation) {
+        if self.index_of_operation(operation).is_some() {
             return Some(WriteAdmissionFailure::IdentityInUse(
                 WriteIdentityKind::Operation,
             ));
         }
-        if self.frames.iter().any(|frame| frame.effect == effect) {
+        if self.index_of_effect(effect).is_some() {
             return Some(WriteAdmissionFailure::IdentityInUse(
                 WriteIdentityKind::Effect,
             ));

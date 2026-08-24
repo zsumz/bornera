@@ -9,6 +9,7 @@ use crate::{
 
 /// Immutable, data-only state for observation outside the owner path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct ConnectionSnapshot {
     /// Logical endpoint.
     pub endpoint: EndpointId,
@@ -39,7 +40,7 @@ pub struct ConnectionSnapshot {
     /// Frames retained by reservations or the write owner.
     pub buffered_write_frames: usize,
     /// Bytes retained by reservations or the write owner.
-    pub buffered_write_bytes: RetainedBytes,
+    pub buffered_write_retained_bytes: RetainedBytes,
 }
 
 impl ConnectionMachine {
@@ -61,7 +62,7 @@ impl ConnectionMachine {
             active_match_keys: ledger.active_keys(),
             retained_bytes: ledger.retained_bytes(),
             buffered_write_frames: ledger.write_frames(),
-            buffered_write_bytes: ledger.write_bytes(),
+            buffered_write_retained_bytes: ledger.write_retained_bytes(),
         }
     }
 }

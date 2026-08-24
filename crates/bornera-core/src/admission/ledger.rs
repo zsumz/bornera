@@ -4,11 +4,13 @@ use calandria::RetainedBytes;
 
 use crate::{ConnectionLimits, MatchKey, ReserveError};
 
+use super::key_set::ActiveKeySet;
+
 /// Capacity held by one permit or accepted operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Reservation {
     pub(crate) retained_bytes: RetainedBytes,
-    pub(crate) write_bytes: RetainedBytes,
+    pub(crate) write_retained_bytes: RetainedBytes,
     pub(crate) match_key: MatchKey,
 }
 
@@ -20,8 +22,8 @@ pub(crate) struct ReservationLedger {
     permits: usize,
     retained_bytes: RetainedBytes,
     write_frames: usize,
-    write_bytes: RetainedBytes,
-    active_keys: Vec<MatchKey>,
+    write_retained_bytes: RetainedBytes,
+    active_keys: ActiveKeySet,
     next_key: MatchKey,
     poisoned: bool,
 }
@@ -34,8 +36,8 @@ impl ReservationLedger {
             permits: 0,
             retained_bytes: RetainedBytes::ZERO,
             write_frames: 0,
-            write_bytes: RetainedBytes::ZERO,
-            active_keys: Vec::new(),
+            write_retained_bytes: RetainedBytes::ZERO,
+            active_keys: ActiveKeySet::new(limits.max_operations()),
             next_key: limits.match_keys().first(),
             poisoned: false,
         }
@@ -44,7 +46,7 @@ impl ReservationLedger {
     pub(crate) fn reserve(
         &mut self,
         retained_bytes: RetainedBytes,
-        write_bytes: RetainedBytes,
+        write_retained_bytes: RetainedBytes,
     ) -> Result<Reservation, ReserveError> {
         if self.poisoned {
             return Err(ReserveError::OwnerPoisoned);
@@ -61,24 +63,26 @@ impl ReservationLedger {
         if self.write_frames == self.limits.max_write_frames() {
             return Err(ReserveError::WriteCapacity);
         }
-        let Some(next_write) = self.write_bytes.checked_add(write_bytes) else {
+        let Some(next_write) = self.write_retained_bytes.checked_add(write_retained_bytes) else {
             return Err(ReserveError::WriteCapacity);
         };
-        if next_write > self.limits.max_write_bytes() {
+        if next_write > self.limits.max_write_retained_bytes() {
             return Err(ReserveError::WriteCapacity);
         }
         let key = self.allocate_key()?;
+        if !self.active_keys.insert(key) {
+            self.poisoned = true;
+            return Err(ReserveError::OwnerPoisoned);
+        }
 
         self.operations += 1;
         self.permits += 1;
         self.retained_bytes = next_retained;
         self.write_frames += 1;
-        self.write_bytes = next_write;
-        self.active_keys.push(key);
-
+        self.write_retained_bytes = next_write;
         Ok(Reservation {
             retained_bytes,
-            write_bytes,
+            write_retained_bytes,
             match_key: key,
         })
     }
@@ -90,7 +94,7 @@ impl ReservationLedger {
         };
         let mut candidate = self.next_key;
         for _ in 0..attempts {
-            if !self.active_keys.contains(&candidate) {
+            if !self.active_keys.contains(candidate) {
                 self.next_key = self.limits.match_keys().next(candidate);
                 return Ok(candidate);
             }
@@ -108,16 +112,16 @@ impl ReservationLedger {
             self.poisoned = true;
             return;
         };
-        let Some(unused) = reservation.write_bytes.checked_sub(actual) else {
+        let Some(unused) = reservation.write_retained_bytes.checked_sub(actual) else {
             self.poisoned = true;
             return;
         };
-        let Some(write_bytes) = self.write_bytes.checked_sub(unused) else {
+        let Some(write_retained_bytes) = self.write_retained_bytes.checked_sub(unused) else {
             self.poisoned = true;
             return;
         };
         self.permits = permits;
-        self.write_bytes = write_bytes;
+        self.write_retained_bytes = write_retained_bytes;
     }
 
     pub(crate) fn release_operation(&mut self, reservation: Reservation, write_held: bool) {
@@ -143,47 +147,45 @@ impl ReservationLedger {
         } else {
             self.permits
         };
-        let (write_frames, write_bytes) = if write_held {
+        let (write_frames, write_retained_bytes) = if write_held {
             let Some(write_frames) = self.write_frames.checked_sub(1) else {
                 self.poisoned = true;
                 return;
             };
-            let Some(write_bytes) = self.write_bytes.checked_sub(reservation.write_bytes) else {
+            let Some(write_retained_bytes) = self
+                .write_retained_bytes
+                .checked_sub(reservation.write_retained_bytes)
+            else {
                 self.poisoned = true;
                 return;
             };
-            (write_frames, write_bytes)
+            (write_frames, write_retained_bytes)
         } else {
-            (self.write_frames, self.write_bytes)
+            (self.write_frames, self.write_retained_bytes)
         };
-        let Some(index) = self
-            .active_keys
-            .iter()
-            .position(|active| *active == reservation.match_key)
-        else {
+        if !self.active_keys.remove(reservation.match_key) {
             self.poisoned = true;
             return;
-        };
+        }
 
         self.operations = operations;
         self.permits = permits;
         self.retained_bytes = retained_bytes;
         self.write_frames = write_frames;
-        self.write_bytes = write_bytes;
-        self.active_keys.swap_remove(index);
+        self.write_retained_bytes = write_retained_bytes;
     }
 
-    pub(crate) fn release_write(&mut self, write_bytes: RetainedBytes) {
+    pub(crate) fn release_write(&mut self, write_retained_bytes: RetainedBytes) {
         let Some(write_frames) = self.write_frames.checked_sub(1) else {
             self.poisoned = true;
             return;
         };
-        let Some(retained) = self.write_bytes.checked_sub(write_bytes) else {
+        let Some(retained) = self.write_retained_bytes.checked_sub(write_retained_bytes) else {
             self.poisoned = true;
             return;
         };
         self.write_frames = write_frames;
-        self.write_bytes = retained;
+        self.write_retained_bytes = retained;
     }
 
     pub(crate) const fn operations(&self) -> usize {
@@ -202,8 +204,8 @@ impl ReservationLedger {
         self.write_frames
     }
 
-    pub(crate) const fn write_bytes(&self) -> RetainedBytes {
-        self.write_bytes
+    pub(crate) const fn write_retained_bytes(&self) -> RetainedBytes {
+        self.write_retained_bytes
     }
 
     pub(crate) fn active_keys(&self) -> usize {

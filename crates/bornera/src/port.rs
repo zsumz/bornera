@@ -1,48 +1,61 @@
-//! Cloneable bounded producer for mechanical dedicated-owner commands.
+//! Cloneable producer for one exact connection's bounded command mailbox.
 
-use bornera_core::{ConnectionEpoch, OperationId};
+use bornera_core::OperationId;
 use calandria::{MailboxSender, TrySendError};
 
-use crate::EngineCommand;
+use crate::{ConnectionCommand, ConnectionToken};
 
-/// Cross-thread producer for a bounded Calandria command mailbox.
+/// Cross-thread producer bound to one generation-fenced connection.
+///
+/// Successful enqueue means only that the bounded set mailbox owns the
+/// command. The authoritative confirmation for admission is
+/// [`crate::ConnectionEvent::AdmissionOpened`].
 #[derive(Clone, Debug)]
-pub struct EnginePort {
-    sender: MailboxSender<EngineCommand>,
+pub struct ConnectionPort {
+    connection: ConnectionToken,
+    sender: MailboxSender<ConnectionCommand>,
 }
 
-impl EnginePort {
-    pub(crate) const fn new(sender: MailboxSender<EngineCommand>) -> Self {
-        Self { sender }
+impl ConnectionPort {
+    pub(crate) const fn new(
+        connection: ConnectionToken,
+        sender: MailboxSender<ConnectionCommand>,
+    ) -> Self {
+        Self { connection, sender }
     }
 
-    /// Requests regular admission for one exact established epoch.
-    pub fn open_admission(
-        &self,
-        epoch: ConnectionEpoch,
-    ) -> Result<(), TrySendError<EngineCommand>> {
+    /// Returns the exact set generation targeted by this producer.
+    pub const fn connection(&self) -> ConnectionToken {
+        self.connection
+    }
+
+    /// Queues a request to open regular admission after establishment.
+    pub fn open_admission(&self) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender
-            .try_send_control(EngineCommand::OpenAdmission { epoch })
+            .try_send_control(ConnectionCommand::OpenAdmission {
+                connection: self.connection,
+            })
     }
 
-    /// Requests explicit local cancellation for one exact accepted operation.
-    pub fn cancel(
-        &self,
-        epoch: ConnectionEpoch,
-        operation: OperationId,
-    ) -> Result<(), TrySendError<EngineCommand>> {
-        self.sender
-            .try_send(EngineCommand::Cancel { epoch, operation })
+    /// Queues explicit local cancellation of one accepted operation.
+    pub fn cancel(&self, operation: OperationId) -> Result<(), TrySendError<ConnectionCommand>> {
+        self.sender.try_send(ConnectionCommand::Cancel {
+            connection: self.connection,
+            operation,
+        })
     }
 
-    /// Requests admission closure followed by ordered draining.
-    pub fn begin_drain(&self, epoch: ConnectionEpoch) -> Result<(), TrySendError<EngineCommand>> {
-        self.sender
-            .try_send_control(EngineCommand::BeginDrain { epoch })
+    /// Queues admission closure followed by ordered draining.
+    pub fn begin_drain(&self) -> Result<(), TrySendError<ConnectionCommand>> {
+        self.sender.try_send_control(ConnectionCommand::BeginDrain {
+            connection: self.connection,
+        })
     }
 
-    /// Requests forced mechanical closure of one exact epoch.
-    pub fn close(&self, epoch: ConnectionEpoch) -> Result<(), TrySendError<EngineCommand>> {
-        self.sender.try_send_control(EngineCommand::Close { epoch })
+    /// Queues forced mechanical closure of the exact epoch.
+    pub fn close(&self) -> Result<(), TrySendError<ConnectionCommand>> {
+        self.sender.try_send_control(ConnectionCommand::Close {
+            connection: self.connection,
+        })
     }
 }

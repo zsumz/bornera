@@ -5,7 +5,7 @@ use core::num::NonZeroUsize;
 
 use calandria::RetainedBytes;
 
-use crate::{MatchKey, WriteQueueLimits};
+use crate::{MatchKey, write::WriteQueueLimits};
 
 /// An inclusive range of protocol-visible match keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,7 +56,7 @@ pub struct ConnectionLimits {
     max_operations: NonZeroUsize,
     max_retained_bytes: RetainedBytes,
     max_write_frames: NonZeroUsize,
-    max_write_bytes: RetainedBytes,
+    max_write_retained_bytes: RetainedBytes,
     match_keys: MatchKeySpace,
 }
 
@@ -66,7 +66,7 @@ impl ConnectionLimits {
         max_operations: usize,
         max_retained_bytes: RetainedBytes,
         max_write_frames: usize,
-        max_write_bytes: RetainedBytes,
+        max_write_retained_bytes: RetainedBytes,
         match_keys: MatchKeySpace,
     ) -> Result<Self, LimitsError> {
         let Some(max_operations) = NonZeroUsize::new(max_operations) else {
@@ -79,7 +79,7 @@ impl ConnectionLimits {
             max_operations,
             max_retained_bytes,
             max_write_frames,
-            max_write_bytes,
+            max_write_retained_bytes,
             match_keys,
         })
     }
@@ -99,9 +99,9 @@ impl ConnectionLimits {
         self.max_write_frames.get()
     }
 
-    /// Returns the maximum queued and reserved write bytes.
-    pub const fn max_write_bytes(self) -> RetainedBytes {
-        self.max_write_bytes
+    /// Returns the maximum memory retained by queued and reserved frames.
+    pub const fn max_write_retained_bytes(self) -> RetainedBytes {
+        self.max_write_retained_bytes
     }
 
     /// Returns the match-key space.
@@ -110,13 +110,14 @@ impl ConnectionLimits {
     }
 
     /// Returns the matching bounded-writer limits for this reservation ledger.
-    pub const fn write_queue_limits(self) -> WriteQueueLimits {
-        WriteQueueLimits::new(self.max_write_frames, self.max_write_bytes)
+    pub(crate) const fn write_queue_limits(self) -> WriteQueueLimits {
+        WriteQueueLimits::new(self.max_write_frames, self.max_write_retained_bytes)
     }
 }
 
 /// Invalid connection-limit configuration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum LimitsError {
     /// No operation can be admitted.
     ZeroOperationCapacity,

@@ -6,14 +6,14 @@ use calandria::RetainedBytes;
 
 /// Resource bounds for complete frames retained in one connection epoch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct WriteQueueLimits {
+pub(crate) struct WriteQueueLimits {
     max_frames: NonZeroUsize,
     max_retained_bytes: RetainedBytes,
 }
 
 impl WriteQueueLimits {
     /// Creates explicit frame-count and retained-byte limits.
-    pub const fn new(max_frames: NonZeroUsize, max_retained_bytes: RetainedBytes) -> Self {
+    pub(crate) const fn new(max_frames: NonZeroUsize, max_retained_bytes: RetainedBytes) -> Self {
         Self {
             max_frames,
             max_retained_bytes,
@@ -21,12 +21,12 @@ impl WriteQueueLimits {
     }
 
     /// Returns the maximum complete frames retained by the writer.
-    pub const fn max_frames(self) -> usize {
+    pub(crate) const fn max_frames(self) -> usize {
         self.max_frames.get()
     }
 
     /// Returns the maximum variable bytes retained by all frames.
-    pub const fn max_retained_bytes(self) -> RetainedBytes {
+    pub(crate) const fn max_retained_bytes(self) -> RetainedBytes {
         self.max_retained_bytes
     }
 }

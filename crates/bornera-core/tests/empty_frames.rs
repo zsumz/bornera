@@ -65,7 +65,7 @@ fn commit(
         OperationOptions::until(Deadline::at(deadline))
             .session()
             .retained_bytes(retained)
-            .write_bytes(retained),
+            .write_retained_bytes(retained),
     )?;
     let key = permit.match_key();
     let (operation, _) = core.commit(permit, EmptyFrame::retained(8))?;
@@ -79,7 +79,7 @@ fn commit(
 fn empty_visible_frame_with_retained_allocation_completes_normally() -> Result<(), Box<dyn Error>> {
     let mut core = core()?;
     let (operation, effect, key) = commit(&mut core, Moment::from_nanos(20))?;
-    core.advance_write(core.epoch(), effect, 0)?;
+    let _transition = core.advance_write(core.epoch(), effect, 0)?;
     assert_eq!(core.queued_write_frames(), 0);
 
     let reply = core.apply_reply(InboundReply::new(
@@ -102,7 +102,7 @@ fn empty_visible_frame_with_retained_allocation_completes_normally() -> Result<(
 fn completed_empty_frame_cancels_not_sent_without_poison() -> Result<(), Box<dyn Error>> {
     let mut core = core()?;
     let (operation, effect, _) = commit(&mut core, Moment::from_nanos(20))?;
-    core.advance_write(core.epoch(), effect, 0)?;
+    let _transition = core.advance_write(core.epoch(), effect, 0)?;
 
     let cancelled = core.apply(ConnectionInput::Cancel {
         epoch: core.epoch(),
@@ -131,7 +131,7 @@ fn completed_empty_frame_deadline_fails_not_sent_without_poison() -> Result<(), 
     let mut core = core()?;
     let deadline = Moment::from_nanos(20);
     let (operation, effect, _) = commit(&mut core, deadline)?;
-    core.advance_write(core.epoch(), effect, 0)?;
+    let _transition = core.advance_write(core.epoch(), effect, 0)?;
 
     let elapsed = core.apply(ConnectionInput::DeadlineElapsed {
         epoch: core.epoch(),

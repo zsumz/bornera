@@ -6,6 +6,7 @@ use crate::{CloseReason, ConnectionEpoch, OperationId};
 
 /// An observation or command applied to the deterministic epoch machine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ConnectionInput {
     /// The protocol session owner completed establishment.
     OpenAdmission {

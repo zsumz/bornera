@@ -6,6 +6,7 @@ use calandria::RetainedBytes;
 
 /// Why a bounded decoder driver could not admit or decode bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum FrameDecodeError<E> {
     /// The decoder already observed a terminal adapter or accounting failure.
     DecoderFailed,

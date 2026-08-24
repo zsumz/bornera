@@ -5,7 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use calandria::Deadline;
 
-use crate::{AdmissionClass, ConnectionEpoch, EffectId, MatchKey, OperationId};
+use crate::{AdmissionClass, CompletionMode, ConnectionEpoch, EffectId, MatchKey, OperationId};
 
 use super::{Reservation, ReservationLedger};
 
@@ -17,6 +17,7 @@ pub struct OperationPermit {
     pub(crate) effect: EffectId,
     pub(crate) deadline: Deadline,
     pub(crate) class: AdmissionClass,
+    pub(crate) completion: CompletionMode,
     pub(crate) reservation: Reservation,
     pub(crate) active: bool,
 }
@@ -39,7 +40,7 @@ impl OperationPermit {
 
     pub(crate) fn commit(&mut self, actual: calandria::RetainedBytes) {
         self.ledger.borrow_mut().commit(self.reservation, actual);
-        self.reservation.write_bytes = actual;
+        self.reservation.write_retained_bytes = actual;
         self.active = false;
     }
 }
@@ -53,6 +54,7 @@ impl fmt::Debug for OperationPermit {
             .field("effect", &self.effect)
             .field("deadline", &self.deadline)
             .field("class", &self.class)
+            .field("completion", &self.completion)
             .field("match_key", &self.reservation.match_key)
             .field("active", &self.active)
             .finish_non_exhaustive()

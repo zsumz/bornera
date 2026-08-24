@@ -4,6 +4,7 @@ use crate::ConnectionEffect;
 
 /// Whether an input changed the current epoch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum InputDisposition {
     /// The input changed current state or emitted a required effect.
     Applied,
@@ -23,6 +24,7 @@ pub enum InputDisposition {
 
 /// Result of explicit cancellation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CancelOutcome {
     /// Queued work was removed before transport write ownership.
     CancelledNotSent,
@@ -36,6 +38,7 @@ pub enum CancelOutcome {
 }
 
 /// Data-only effects and classification produced by one state transition.
+#[must_use = "connection transitions contain required deadline, closure, and publication effects"]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConnectionTransition<F = ()> {
     disposition: InputDisposition,

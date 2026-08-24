@@ -38,6 +38,7 @@ fn front_identity(
 ) -> Result<(OperationId, EffectId), std::io::Error> {
     machine
         .front_write(std::num::NonZeroUsize::MAX)
+        .map_err(std::io::Error::other)?
         .map(|front| (front.operation, front.effect))
         .ok_or_else(|| std::io::Error::other("aggregate retained no write front"))
 }
@@ -51,7 +52,7 @@ fn commit_one(
         OperationOptions::until(Deadline::at(Moment::from_nanos(deadline)))
             .session()
             .retained_bytes(RetainedBytes::new(2))
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let (operation, _) = machine.commit(permit, frame(3))?;
     let (_, effect) = front_identity(machine)?;
@@ -129,7 +130,7 @@ fn possibly_sent_deadline_closes_epoch_and_never_strengthens_delivery() -> Resul
     let mut machine = machine()?;
     let (first, first_effect) = commit_one(&mut machine, 10)?;
     let (second, _) = commit_one(&mut machine, 20)?;
-    machine.advance_write(machine.epoch(), first_effect, 1)?;
+    let _transition = machine.advance_write(machine.epoch(), first_effect, 1)?;
 
     let elapsed = machine.apply(ConnectionInput::DeadlineElapsed {
         epoch: machine.epoch(),
@@ -175,8 +176,8 @@ fn cancelled_possibly_sent_operation_is_not_published_twice_at_deadline()
 -> Result<(), Box<dyn Error>> {
     let mut machine = machine()?;
     let (operation, effect) = commit_one(&mut machine, 10)?;
-    machine.advance_write(machine.epoch(), effect, 1)?;
-    machine.apply(ConnectionInput::Cancel {
+    let _transition = machine.advance_write(machine.epoch(), effect, 1)?;
+    let _transition = machine.apply(ConnectionInput::Cancel {
         epoch: machine.epoch(),
         operation,
     })?;
@@ -204,7 +205,7 @@ fn cancelled_possibly_sent_operation_is_not_published_twice_at_deadline()
 #[test]
 fn physical_close_confirmation_is_epoch_scoped() -> Result<(), Box<dyn Error>> {
     let mut machine = machine()?;
-    machine.apply(ConnectionInput::CloseRequested {
+    let _transition = machine.apply(ConnectionInput::CloseRequested {
         epoch: machine.epoch(),
         reason: CloseReason::Requested,
     })?;

@@ -1,14 +1,14 @@
 //! Interpretation of data-only core effects through bounded Calandria owners.
 
-use bornera_core::{ConnectionEffect, ConnectionInput, ConnectionTransition, OperationOutcome};
+use bornera_core::{ConnectionEffect, ConnectionTransition, OperationOutcome};
 use calandria::Retained;
 
 use crate::{
-    ConnectionEngine, DeadlineEntry, DeadlineEvent, EngineError, EngineInvariant, EngineOutcome,
-    InboundClassifier,
+    CloseDirective, ConnectionSlot, DeadlineEntry, DeadlineEvent, EngineError, EngineInvariant,
+    EngineOutcome, InboundClassifier, TransportState,
 };
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> ConnectionSlot<D, C>
 where
     D: bornera_core::FrameDecoder,
     D::Frame: Retained,
@@ -56,11 +56,21 @@ where
                             );
                             continue;
                         }
+                        OperationOutcome::WriteComplete { delivery } => {
+                            OperationOutcome::WriteComplete { delivery }
+                        }
                         OperationOutcome::Failed { failure, delivery } => {
                             OperationOutcome::Failed { failure, delivery }
                         }
                         OperationOutcome::Cancelled { delivery } => {
                             OperationOutcome::Cancelled { delivery }
+                        }
+                        _ => {
+                            retain_first(
+                                &mut failure,
+                                Err(invariant(EngineInvariant::UnsupportedCoreEffect)),
+                            );
+                            continue;
                         }
                     };
                     retain_first(
@@ -68,6 +78,10 @@ where
                         self.publish(EngineOutcome::new(epoch, operation, outcome)),
                     );
                 }
+                _ => retain_first(
+                    &mut failure,
+                    Err(invariant(EngineInvariant::UnsupportedCoreEffect)),
+                ),
             }
         }
         self.finish_close(close_reason, &mut failure);
@@ -110,6 +124,10 @@ where
                 } => retain_first(
                     &mut failure,
                     self.publish(EngineOutcome::new(epoch, operation, outcome)),
+                ),
+                _ => retain_first(
+                    &mut failure,
+                    Err(invariant(EngineInvariant::UnsupportedCoreEffect)),
                 ),
             }
         }
@@ -160,24 +178,6 @@ where
         Ok(())
     }
 
-    pub(crate) fn close_transport(&mut self) -> Result<(), EngineError> {
-        drop(self.commands.close());
-        self.command_more_pending = false;
-        let Some(token) = self.transport else {
-            return Ok(());
-        };
-        let (poller, resources) = (&mut self.poller, &mut self.resources);
-        let (_, transport) = resources
-            .get_mut(token)
-            .map_err(|_| invariant(EngineInvariant::ResourceToken))?;
-        poller.deregister(transport, token)?;
-        resources
-            .remove(token)
-            .map_err(|_| invariant(EngineInvariant::ResourceToken))?;
-        self.transport = None;
-        Ok(())
-    }
-
     fn finish_close(
         &mut self,
         reason: Option<bornera_core::CloseReason>,
@@ -186,40 +186,11 @@ where
         let Some(reason) = reason else {
             return;
         };
-        retain_first(failure, self.publish_closing(reason));
-        let cleanup = self.close_transport();
-        if let Err(error) = cleanup {
-            retain_first(failure, Err(error));
-            return;
+        if self.close_request.is_none() {
+            retain_first(failure, self.publish_closing(reason));
+            self.transport_state = TransportState::Closing;
+            self.close_request = Some(CloseDirective::Core(reason));
         }
-        let reason = self
-            .core
-            .snapshot()
-            .close_reason
-            .ok_or_else(|| invariant(EngineInvariant::MissingCloseReason));
-        let Ok(reason) = reason else {
-            retain_first(failure, reason.map(|_| ()));
-            return;
-        };
-        let transition = self
-            .core
-            .apply(ConnectionInput::EpochClosed {
-                epoch: self.core.epoch(),
-            })
-            .map_err(EngineError::Core);
-        match transition {
-            Ok(transition) => {
-                if let Err(error) = self.interpret_unit(transition) {
-                    retain_first(failure, Err(error));
-                    return;
-                }
-            }
-            Err(error) => {
-                retain_first(failure, Err(error));
-                return;
-            }
-        }
-        retain_first(failure, self.publish_closed(reason));
     }
 }
 

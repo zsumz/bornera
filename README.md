@@ -28,13 +28,28 @@
 ```text
 bornera       production connection ownership hosted by Calandria
 bornera-core  deterministic sans-I/O connection policy
-bornera-sim   deterministic network capabilities for simulation
+bornera-sim   deterministic bounded trace replay (currently unpublished)
 ```
 
 Operations follow `reserve -> prepare -> commit`. Bornera reserves bounded
 capacity before an adapter encodes a frame, then takes ownership only when the
 complete frame is committed. Every accepted operation belongs to one connection
-epoch and ends exactly once or transfers through explicit fatal-owner recovery.
+epoch and ends exactly once while its owner is driven to completion or consumed
+through explicit fatal-owner recovery. Arbitrary Rust `drop`, process failure,
+or a panic in adapter code can discard observations that were not drained.
+
+Production ownership is split deliberately:
+
+```text
+ConnectionSlot         selector-free state for one exact connection epoch
+ConnectionSet          one selector and bounded fair progression for many slots
+StandaloneConnection   capacity-one convenience wrapper around ConnectionSet
+```
+
+`bornera-sim` drives that same selector-free `ConnectionSlot`—including its
+decoder, classifier, deadlines, publications, and recovery path—through
+Calandria virtual time and a bounded simulated transport. It remains an
+unpublished qualification crate rather than a peer production capability.
 
 Delivery certainty is deliberately limited to `NotSent` and `PossiblySent`.
 A local socket write cannot prove remote receipt or processing. Protocol crates
@@ -44,9 +59,9 @@ retain codecs, routing, session semantics, topology, errors, and retry policy.
 
 | Crate | Purpose |
 | --- | --- |
-| `bornera` | Production connection engine using Calandria hosting and private Mio TCP capabilities |
+| `bornera` | Shared-selector production connection ownership using Calandria hosting and private Mio TCP capabilities |
 | `bornera-core` | Bounded admission, framing, matching, deadlines, delivery certainty, and recovery policy |
-| `bornera-sim` | Deterministic network capabilities for future simulation support |
+| `bornera-sim` | Unpublished bounded trace capture, exact replay, and generated policy properties |
 
 The crates begin at the same version and remain lockstepped during pre-alpha.
 Use only the layer you need.
@@ -57,8 +72,9 @@ Add only the layers you need:
 
 ```toml
 [dependencies]
-bornera = "=0.0.1-rc.1"
-bornera-core = "=0.0.1-rc.1"
+bornera = "=0.0.1-rc.2"
+bornera-core = "=0.0.1-rc.2"
+calandria = { version = "=0.0.1-rc.2", features = ["std"] }
 ```
 
 Run either production hosting model from a checkout:
@@ -68,8 +84,15 @@ cargo run -p bornera --example embedded --locked --offline
 cargo run -p bornera --example dedicated --locked --offline
 ```
 
-The engine exposes bounded, epoch-fenced mechanical control. It does not expose
-an async runtime, protocol-semantic work, or automatic retry decisions.
+Public configuration and host contracts use Bornera-Core and Calandria value
+types, so production consumers should declare all three layers explicitly.
+Mailbox success means a command is queued, not applied. The sequenced
+`AdmissionOpened` lifecycle event is the authoritative confirmation that
+regular admission opened.
+
+The owner exposes bounded, generation- and epoch-fenced mechanical control. It
+does not expose an async runtime, protocol-semantic work, or automatic retry
+decisions.
 
 ## Qualification
 
@@ -77,12 +100,19 @@ an async runtime, protocol-semantic work, or automatic retry decisions.
 zcheck
 ```
 
-The zcheck graph is the complete gate for formatting, tests, examples, Clippy,
-rustdoc, source shape, zrail architecture, and clean diffs.
+The zcheck graph is the complete local gate for formatting, tests, examples,
+Clippy, rustdoc, source shape, zrail architecture, clean diffs, package
+contents, packaged-crate smoke compilation, and publish ordering.
 
-Bornera requires Rust 1.88 or newer. `0.0.1-rc.1` is a release candidate; DNS
-ownership, reconnect policy, optional TLS, and deterministic network simulation
-remain future work.
+Bornera requires Rust 1.88 or newer. Checked-in CI additionally qualifies the
+latest stable toolchain, macOS, Windows, cargo-deny, selected Miri tests, and a
+workspace coverage report. The production loopback persona covers session
+establishment, correlated request/reply, Kafka-style no-reply writes, partial
+writes at deadline, cancellation on both sides of first write progress, peer
+loss, and explicit owner recovery. DNS ownership, address selection, reconnect
+policy, and optional TLS remain future work. A prerelease version in source is
+not release proof, and package publication must occur in dependency order:
+`bornera-core` before `bornera`.
 
 ## License
 

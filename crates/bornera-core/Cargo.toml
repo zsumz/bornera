@@ -24,5 +24,9 @@ calandria.workspace = true
 name = "write_progress"
 harness = false
 
+[[bench]]
+name = "owner_paths"
+harness = false
+
 [lints]
 workspace = true

@@ -54,6 +54,7 @@ impl WriteFrame for OutboundFrame {
 
 /// Invalid retained-memory declaration for a complete outbound frame.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum OutboundFrameError {
     /// The platform frame length exceeded fixed-width byte accounting.
     LengthOverflow,

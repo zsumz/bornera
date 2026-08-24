@@ -40,7 +40,7 @@ fn main() -> Result<(), BoxError> {
             }
             let mut engine = exit.into_duty();
             let outcome = engine
-                .drain_outcomes()
+                .drain_outcomes()?
                 .next()
                 .ok_or_else(|| std::io::Error::other("dedicated example received no outcome"))?;
             Ok(outcome.into_outcome()

@@ -8,6 +8,7 @@ use crate::{
 
 /// Why an epoch must close.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CloseReason {
     /// Accepted work drained after admission closed.
     Drained,
@@ -17,6 +18,10 @@ pub enum CloseReason {
     DeadlineAfterPossibleSend,
     /// The transport reported loss of the connection.
     TransportLost,
+    /// One exact nonblocking connection attempt failed before establishment.
+    ConnectFailed,
+    /// One exact nonblocking connection attempt exceeded its absolute deadline.
+    ConnectTimedOut,
     /// A reply arrived when no operation could own it.
     UnexpectedReply,
     /// The adapter rejected a complete inbound frame as malformed.
@@ -34,6 +39,7 @@ pub enum CloseReason {
 
 /// A capability action or terminal publication requested by core policy.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ConnectionEffect<F = ()> {
     /// Schedule the original absolute deadline.
     ScheduleDeadline {
@@ -73,7 +79,7 @@ pub enum ConnectionEffect<F = ()> {
         epoch: ConnectionEpoch,
         /// Terminal operation.
         operation: OperationId,
-        /// Mechanical terminal outcome. Replies enter with matching in Milestone 3.
+        /// Mechanical terminal outcome, including an opaque matched reply when present.
         outcome: OperationOutcome<F>,
     },
 }

@@ -37,7 +37,7 @@ fn main() -> Result<(), BoxError> {
 
     let mut engine = host.into_duty();
     let reply = engine
-        .drain_outcomes()
+        .drain_outcomes()?
         .next()
         .ok_or_else(|| std::io::Error::other("embedded example received no outcome"))?;
     if reply.into_outcome()
