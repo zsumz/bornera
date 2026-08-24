@@ -8,23 +8,24 @@ use calandria::{Duty, EventBatchDrain, Moment, Next, Retained, Span, Turn, WaitO
 
 use crate::{
     ConnectError, ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
-    ConnectionSet, ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlotLimits,
-    ConnectionSlotSnapshot, ConnectionToken, EngineCommitError, EngineError, EngineInvariant,
-    EngineOutcome, InboundClassifier, OutboundFrame, OwnerFailure, StandaloneConnectionConfig,
-    TransportState,
+    ConnectionPulseHandle, ConnectionSet, ConnectionSetLimits, ConnectionSetSnapshot,
+    ConnectionSlotLimits, ConnectionSlotSnapshot, ConnectionToken, EngineCommitError, EngineError,
+    EngineInvariant, EngineOutcome, InboundClassifier, OutboundFrame, OwnerFailure,
+    RegisteredTransport, StandaloneConnectionConfig, TcpTransport, TransportState,
 };
 
 /// Dedicated capacity-one owner implemented by the same bounded connection set.
 #[derive(Debug)]
-pub struct StandaloneConnection<D, C>
+pub struct StandaloneConnection<D, C, T = TcpTransport>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
-    pub(crate) set: ConnectionSet<D, C>,
+    pub(crate) set: ConnectionSet<D, C, T>,
     pub(crate) connection: ConnectionToken,
 }
 
-impl<D, C> StandaloneConnection<D, C>
+impl<D, C> StandaloneConnection<D, C, TcpTransport>
 where
     D: FrameDecoder,
     D::Frame: Retained,
@@ -42,7 +43,15 @@ where
         let connection = set.connect(config.connection(), limits, decoder, classifier)?;
         Ok(Self { set, connection })
     }
+}
 
+impl<D, C, T> StandaloneConnection<D, C, T>
+where
+    D: FrameDecoder,
+    D::Frame: Retained,
+    C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
+{
     /// Returns the generation-fenced identity of the sole connection.
     pub const fn token(&self) -> ConnectionToken {
         self.connection
@@ -56,6 +65,11 @@ where
     /// Creates an independent coalesced wake domain for the owned selector.
     pub fn wake_handle(&self) -> calandria::WakeHandle {
         self.set.wake_handle()
+    }
+
+    /// Creates an acknowledgement-free notification domain for the owned selector.
+    pub fn pulse_handle(&self) -> ConnectionPulseHandle {
+        self.set.pulse_handle()
     }
 
     /// Reserves bounded operation ownership.
@@ -151,7 +165,7 @@ where
         self.set.snapshot()
     }
 
-    /// Returns whether the TCP capability completed establishment.
+    /// Returns whether the application transport completed establishment.
     pub fn is_transport_open(&self) -> Result<bool, EngineError> {
         self.set
             .is_transport_open(self.connection)
@@ -202,11 +216,12 @@ fn standalone_error(error: ConnectionAccessError) -> EngineError {
     }
 }
 
-impl<D, C> Duty for StandaloneConnection<D, C>
+impl<D, C, T> Duty for StandaloneConnection<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     type Error = EngineError;
 

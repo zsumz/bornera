@@ -1,8 +1,12 @@
 //! Backend-neutral transport contract for one connection slot.
 
-use std::io::{self, Read, Write};
+use std::{
+    io::{self, Read, Write},
+    net::SocketAddr,
+};
 
-use calandria::Interest;
+use calandria::{Interest, Readiness};
+use mio::event::Source;
 
 use crate::TcpSocketPolicy;
 
@@ -29,6 +33,28 @@ pub trait SlotTransport: Read + Write {
     fn clear_read(&mut self);
     /// Clears the current writable observation after a would-block result.
     fn clear_write(&mut self);
+}
+
+/// One backend-neutral transport that can be registered with a Mio selector.
+///
+/// Readiness observations belong to the exact registered transport generation.
+/// Implementations must retain them until the corresponding nonblocking operation
+/// consumes the observation or reports `WouldBlock`.
+pub trait RegisteredTransport: SlotTransport + Source {
+    /// Merges one readiness observation into this transport generation.
+    fn observe_readiness(&mut self, readiness: Readiness);
+}
+
+/// Capacity-first construction of one exact nonblocking registered transport.
+///
+/// A [`crate::ConnectionSet`] invokes the connector only after reserving its bounded
+/// resource slot. Implementations must initiate at most one nonblocking address attempt.
+pub trait TransportConnector {
+    /// Concrete transport produced for this homogeneous connection set.
+    type Transport: RegisteredTransport;
+
+    /// Initiates one exact nonblocking attempt to the already-resolved address.
+    fn connect(self, address: SocketAddr) -> io::Result<Self::Transport>;
 }
 
 /// Result of resolving one readiness-observed nonblocking connection attempt.

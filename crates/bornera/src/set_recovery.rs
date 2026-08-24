@@ -5,14 +5,15 @@ use calandria::Retained;
 
 use crate::{
     ConnectionRecoveryError, ConnectionSet, ConnectionToken, InboundClassifier, OutboundFrame,
-    OwnerFailure, RecoveryReport,
+    OwnerFailure, RecoveryReport, RegisteredTransport,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Transfers one failed generation without consuming peer ownership.
     ///

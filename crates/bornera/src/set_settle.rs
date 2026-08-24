@@ -6,14 +6,15 @@ use calandria_mio::{MioError, MioPoller};
 
 use crate::{
     ConnectionEntry, ConnectionSet, EngineError, EngineInvariant, InboundClassifier,
-    TransportDiagnostic, TransportFailurePhase,
+    RegisteredTransport, TransportDiagnostic, TransportFailurePhase,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     pub(crate) fn settle_connection(
         &mut self,
@@ -48,15 +49,16 @@ where
     }
 }
 
-pub(crate) fn settle_entry<D, C>(
+pub(crate) fn settle_entry<D, C, T>(
     poller: &mut MioPoller,
     resource: ResourceToken,
-    entry: &mut ConnectionEntry<D, C>,
+    entry: &mut ConnectionEntry<D, C, T>,
 ) -> Result<usize, EngineError>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     let Some(directive) = entry.slot.take_close_request() else {
         return Ok(0);
@@ -80,21 +82,22 @@ where
     Ok(1)
 }
 
-pub(crate) fn sync_interest<D, C>(
+pub(crate) fn sync_interest<D, C, T>(
     poller: &mut MioPoller,
     resource: ResourceToken,
-    entry: &mut ConnectionEntry<D, C>,
+    entry: &mut ConnectionEntry<D, C, T>,
 ) -> Result<usize, EngineError>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     let Some(transport) = entry.transport.as_mut() else {
         return Ok(0);
     };
     let desired = entry.slot.desired_interest(transport);
-    if desired == transport.interest() {
+    if desired == entry.interest {
         return Ok(0);
     }
     if let Err(source) = poller.reregister(transport, resource, desired) {
@@ -103,7 +106,7 @@ where
         entry.slot.latch_failure(&error);
         return Err(error);
     }
-    transport.set_interest(desired);
+    entry.interest = desired;
     Ok(1)
 }
 

@@ -7,7 +7,7 @@ use calandria::Retained;
 
 use crate::{
     ConnectionEvent, EngineError, EngineOutcome, InboundClassifier, OutboundFrame,
-    StandaloneConnection,
+    RegisteredTransport, StandaloneConnection, TcpTransport,
 };
 
 /// Mechanical category explaining why normal owner finalization was abandoned.
@@ -54,16 +54,18 @@ pub struct RecoveryReport<F, R> {
 }
 
 /// Rejected recovery attempt that still owns the healthy connection.
-pub struct RecoveryWhileRunning<D, C>
+pub struct RecoveryWhileRunning<D, C, T = TcpTransport>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
-    connection: Box<StandaloneConnection<D, C>>,
+    connection: Box<StandaloneConnection<D, C, T>>,
 }
 
-impl<D, C> fmt::Debug for RecoveryWhileRunning<D, C>
+impl<D, C, T> fmt::Debug for RecoveryWhileRunning<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -72,26 +74,28 @@ where
     }
 }
 
-impl<D, C> RecoveryWhileRunning<D, C>
+impl<D, C, T> RecoveryWhileRunning<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     /// Returns immutable access to the still-running capacity-one owner.
-    pub fn connection(&self) -> &StandaloneConnection<D, C> {
+    pub fn connection(&self) -> &StandaloneConnection<D, C, T> {
         &self.connection
     }
 
     /// Recovers the still-running capacity-one owner intact.
-    pub fn into_connection(self) -> StandaloneConnection<D, C> {
+    pub fn into_connection(self) -> StandaloneConnection<D, C, T> {
         *self.connection
     }
 }
 
-impl<D, C> StandaloneConnection<D, C>
+impl<D, C, T> StandaloneConnection<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Tries to consume a failed connection and transfer all recoverable ownership.
     ///
@@ -99,7 +103,7 @@ where
     /// resumed or reused after successful recovery.
     pub fn try_recover(
         self,
-    ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, RecoveryWhileRunning<D, C>> {
+    ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, RecoveryWhileRunning<D, C, T>> {
         let failure = self
             .set
             .entry(self.connection)

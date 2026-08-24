@@ -9,14 +9,15 @@ use calandria::{EventBatchDrain, Moment, Retained};
 use crate::{
     ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionReserveError,
     ConnectionRetireError, ConnectionSet, ConnectionSlotSnapshot, ConnectionToken, EngineOutcome,
-    InboundClassifier, OutboundFrame, TransportState,
+    InboundClassifier, OutboundFrame, RegisteredTransport, TransportState,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Reserves bounded operation ownership in one exact connection.
     pub fn reserve(

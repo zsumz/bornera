@@ -37,7 +37,7 @@ fn closed_publication_failure_is_returned_by_synchronous_finalize() -> Result<()
         Decoder,
         Classifier,
     )?;
-    let mut set = ConnectionSet::new(
+    let mut set: ConnectionSet<Decoder, Classifier> = ConnectionSet::new(
         ConnectionSetConfig::new(ResourceOwnerId::new(6)),
         ConnectionSetLimits::standalone(limits),
     )?;
@@ -48,6 +48,7 @@ fn closed_publication_failure_is_returned_by_synchronous_finalize() -> Result<()
             ConnectionEntry {
                 slot,
                 transport: None,
+                interest: calandria::Interest::READ_WRITE,
                 ready_queued: false,
             },
         )

@@ -1,8 +1,6 @@
 //! Production connection ownership for native protocol clients.
 //!
-//! This crate privately owns native plaintext TCP capabilities while Calandria
-//! supplies time, readiness, timers, resources, wakes, and hosting. Protocol
-//! crates retain codecs, session meaning, routing, retry, and public APIs.
+//! Bornera owns native transports; protocol crates own session meaning and policy.
 mod admission;
 mod classifier;
 mod command;
@@ -22,6 +20,8 @@ mod recovery;
 mod set;
 mod set_access;
 mod set_connect;
+#[cfg(test)]
+mod set_connect_test;
 mod set_drive;
 mod set_failure;
 #[cfg(test)]
@@ -61,7 +61,7 @@ pub use error::{ConnectError, EngineCommitError, EngineError, EngineInvariant};
 pub use event::ConnectionEvent;
 pub use frame::{OutboundFrame, OutboundFrameError};
 pub use outcome::EngineOutcome;
-pub use port::ConnectionPort;
+pub use port::{ConnectionPort, ConnectionPulseHandle};
 pub use recovery::{OwnerFailure, RecoveryReport, RecoveryWhileRunning};
 pub(crate) use set::ConnectionEntry;
 pub use set::ConnectionSet;
@@ -75,6 +75,6 @@ pub use socket::{SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPol
 pub use standalone::StandaloneConnection;
 pub(crate) use state::EngineState;
 pub use token::ConnectionToken;
-pub(crate) use transport::PlaintextTransport;
-pub use transport_port::{ConnectProgress, SlotTransport};
+pub use transport::TcpTransport;
+pub use transport_port::{ConnectProgress, RegisteredTransport, SlotTransport, TransportConnector};
 pub use waiter::ConnectionWaiter;

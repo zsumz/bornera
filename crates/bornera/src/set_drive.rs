@@ -6,16 +6,17 @@ use calandria::{
 };
 
 use crate::{
-    ConnectionCommand, ConnectionSet, EngineError, InboundClassifier,
+    ConnectionCommand, ConnectionSet, EngineError, InboundClassifier, RegisteredTransport,
     set_settle::{settle_entry, sync_interest},
     to_u64,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Performs one complete bounded set turn with fair per-slot progression.
     pub fn turn_component(&mut self, now: Moment) -> Result<Turn, EngineError> {
@@ -108,7 +109,7 @@ where
                 *stale = stale.saturating_add(1);
                 continue;
             };
-            transport.observe(readiness);
+            transport.observe_readiness(readiness);
             if !entry.ready_queued {
                 entry.ready_queued = true;
                 ready.push_back(token);

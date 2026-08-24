@@ -62,7 +62,7 @@ routing, session semantics, topology, errors, and retry policy.
 
 | Crate | Purpose |
 | --- | --- |
-| `bornera` | Shared-selector production connection ownership using Calandria hosting and private Mio TCP capabilities |
+| `bornera` | Shared-selector production ownership for registered native transports under Calandria hosting |
 | `bornera-core` | Bounded admission, framing, matching, deadlines, delivery certainty, and recovery policy |
 | `bornera-sim` | Unpublished bounded trace capture, exact replay, and generated policy properties |
 

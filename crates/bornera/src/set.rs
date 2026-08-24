@@ -11,28 +11,33 @@ use calandria_mio::MioPoller;
 
 use crate::{
     ConnectionAccessError, ConnectionCommand, ConnectionIdentity, ConnectionPort,
-    ConnectionSetConfig, ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlot,
-    ConnectionToken, EngineError, InboundClassifier, PlaintextTransport,
+    ConnectionPulseHandle, ConnectionSetConfig, ConnectionSetLimits, ConnectionSetSnapshot,
+    ConnectionSlot, ConnectionToken, EngineError, InboundClassifier, RegisteredTransport,
+    TcpTransport,
 };
 
 /// One connection slot plus the private capability registered for its generation.
-pub(crate) struct ConnectionEntry<D, C>
+pub(crate) struct ConnectionEntry<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     pub(crate) slot: ConnectionSlot<D, C>,
-    pub(crate) transport: Option<PlaintextTransport>,
+    pub(crate) transport: Option<T>,
+    pub(crate) interest: calandria::Interest,
     pub(crate) ready_queued: bool,
 }
 
-impl<D, C> core::fmt::Debug for ConnectionEntry<D, C>
+impl<D, C, T> core::fmt::Debug for ConnectionEntry<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter
             .debug_struct("ConnectionEntry")
-            .field("transport", &self.transport)
+            .field("transport_live", &self.transport.is_some())
+            .field("interest", &self.interest)
             .field("ready_queued", &self.ready_queued)
             .finish_non_exhaustive()
     }
@@ -40,14 +45,15 @@ where
 
 /// Bounded owner for many connection epochs sharing one Mio selector.
 #[derive(Debug)]
-pub struct ConnectionSet<D, C>
+pub struct ConnectionSet<D, C, T = TcpTransport>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     pub(crate) limits: ConnectionSetLimits,
     pub(crate) poller: MioPoller,
     pub(crate) poll_events: PollEvents,
-    pub(crate) resources: ResourceTable<ConnectionIdentity, ConnectionEntry<D, C>>,
+    pub(crate) resources: ResourceTable<ConnectionIdentity, ConnectionEntry<D, C, T>>,
     pub(crate) ready: VecDeque<ResourceToken>,
     pub(crate) scan: Vec<ResourceToken>,
     pub(crate) commands: MailboxReceiver<ConnectionCommand>,
@@ -61,11 +67,12 @@ where
     pub(crate) owner_failure: Option<crate::OwnerFailure>,
 }
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Creates an empty bounded set and its sole readiness selector.
     pub fn new(
@@ -110,6 +117,11 @@ where
         self.poller.wake_handle()
     }
 
+    /// Creates an acknowledgement-free notification domain for the shared selector.
+    pub fn pulse_handle(&self) -> ConnectionPulseHandle {
+        ConnectionPulseHandle::new(self.poller.pulse_handle())
+    }
+
     /// Returns immutable shared-selector pressure and stale-event observations.
     pub fn snapshot(&self) -> ConnectionSetSnapshot {
         ConnectionSetSnapshot {
@@ -138,7 +150,7 @@ where
     pub(crate) fn entry(
         &self,
         connection: ConnectionToken,
-    ) -> Result<&ConnectionEntry<D, C>, ConnectionAccessError> {
+    ) -> Result<&ConnectionEntry<D, C, T>, ConnectionAccessError> {
         let (identity, entry) = self
             .resources
             .get(connection.resource())
@@ -152,7 +164,7 @@ where
     pub(crate) fn entry_mut(
         &mut self,
         connection: ConnectionToken,
-    ) -> Result<&mut ConnectionEntry<D, C>, ConnectionAccessError> {
+    ) -> Result<&mut ConnectionEntry<D, C, T>, ConnectionAccessError> {
         let (identity, entry) = self
             .resources
             .get_mut(connection.resource())
@@ -175,11 +187,12 @@ where
     }
 }
 
-impl<D, C> Duty for ConnectionSet<D, C>
+impl<D, C, T> Duty for ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     type Error = EngineError;
 
@@ -188,9 +201,10 @@ where
     }
 }
 
-impl<D, C> Drop for ConnectionSet<D, C>
+impl<D, C, T> Drop for ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     fn drop(&mut self) {
         drop(self.commands.close());

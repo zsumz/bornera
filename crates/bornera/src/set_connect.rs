@@ -1,14 +1,15 @@
-//! Capacity-first acquisition for one TCP connection in a shared selector.
+//! Capacity-first acquisition for one registered transport in a shared selector.
 
 use bornera_core::FrameDecoder;
 use calandria::Retained;
 
 use crate::{
     ConnectError, ConnectionConfig, ConnectionEntry, ConnectionSet, ConnectionSlot,
-    ConnectionSlotLimits, ConnectionToken, InboundClassifier, PlaintextTransport,
+    ConnectionSlotLimits, ConnectionToken, InboundClassifier, RegisteredTransport, TcpTransport,
+    TransportConnector,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C> ConnectionSet<D, C, TcpTransport>
 where
     D: FrameDecoder,
     D::Frame: Retained,
@@ -22,23 +23,29 @@ where
         decoder: D,
         classifier: C,
     ) -> Result<ConnectionToken, ConnectError<D::Error>> {
-        self.connect_with(
-            config,
-            limits,
-            decoder,
-            classifier,
-            PlaintextTransport::connect,
-        )
+        self.connect_with(config, limits, decoder, classifier, TcpConnector)
     }
+}
 
-    pub(crate) fn connect_with(
+impl<D, C, T> ConnectionSet<D, C, T>
+where
+    D: FrameDecoder,
+    D::Frame: Retained,
+    C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
+{
+    /// Capacity-first construction and registration of one exact transport attempt.
+    pub fn connect_with<K>(
         &mut self,
         config: ConnectionConfig,
         limits: ConnectionSlotLimits,
         decoder: D,
         classifier: C,
-        connector: fn(std::net::SocketAddr) -> std::io::Result<PlaintextTransport>,
-    ) -> Result<ConnectionToken, ConnectError<D::Error>> {
+        connector: K,
+    ) -> Result<ConnectionToken, ConnectError<D::Error>>
+    where
+        K: TransportConnector<Transport = T>,
+    {
         if let Some(reason) = self.owner_failure {
             return Err(ConnectError::OwnerFailed(reason));
         }
@@ -52,11 +59,12 @@ where
                 ConnectionEntry {
                     slot,
                     transport: None,
+                    interest: calandria::Interest::READ_WRITE,
                     ready_queued: false,
                 },
             )
             .map_err(|_| ConnectError::ResourceAdmission)?;
-        let transport = match connector(config.address()) {
+        let transport = match connector.connect(config.address()) {
             Ok(transport) => transport,
             Err(source) => {
                 let _removed = self.resources.remove(resource);
@@ -67,6 +75,7 @@ where
             .resources
             .get_mut(resource)
             .map_err(|_| ConnectError::ResourceAdmission)?;
+        entry.interest = entry.slot.desired_interest(&transport);
         entry.transport = Some(transport);
         let registration = self
             .poller
@@ -76,7 +85,7 @@ where
                     .as_mut()
                     .ok_or(ConnectError::ResourceAdmission)?,
                 resource,
-                calandria::Interest::READ_WRITE,
+                entry.interest,
             )
             .map_err(ConnectError::Mio);
         if let Err(error) = registration {
@@ -86,5 +95,16 @@ where
         let token = ConnectionToken::new(resource, identity);
         self.enqueue(resource);
         Ok(token)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TcpConnector;
+
+impl TransportConnector for TcpConnector {
+    type Transport = TcpTransport;
+
+    fn connect(self, address: std::net::SocketAddr) -> std::io::Result<Self::Transport> {
+        TcpTransport::connect(address)
     }
 }

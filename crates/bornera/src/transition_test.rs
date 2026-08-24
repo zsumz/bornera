@@ -89,7 +89,7 @@ fn cleanup_failure_keeps_policy_closing_and_never_publishes_closed() -> Result<(
 #[test]
 fn pending_connect_clears_cached_completion_readiness() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut transport = crate::PlaintextTransport::connect(listener.local_addr()?)?;
+    let mut transport = crate::TcpTransport::connect(listener.local_addr()?)?;
     transport.observe(Readiness::WRITABLE.union(Readiness::ERROR));
     assert!(transport.can_finish_connect());
     transport.clear_connect();

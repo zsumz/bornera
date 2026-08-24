@@ -1,9 +1,31 @@
 //! Cloneable producer for one exact connection's bounded command mailbox.
 
+use std::io;
+
 use bornera_core::OperationId;
 use calandria::{MailboxSender, TrySendError};
 
 use crate::{ConnectionCommand, ConnectionToken};
+
+/// Acknowledgement-free notification handle for one Bornera selector.
+///
+/// Each call reaches the underlying Mio waker. Producers must publish durable state
+/// before pulsing, and the connection-set owner must drain or rescan that state.
+#[derive(Clone, Debug)]
+pub struct ConnectionPulseHandle {
+    pulse: calandria_mio::MioPulseHandle,
+}
+
+impl ConnectionPulseHandle {
+    pub(crate) fn new(pulse: calandria_mio::MioPulseHandle) -> Self {
+        Self { pulse }
+    }
+
+    /// Notifies the selector without a Calandria acknowledgement domain.
+    pub fn pulse(&self) -> io::Result<()> {
+        self.pulse.pulse()
+    }
+}
 
 /// Cross-thread producer bound to one generation-fenced connection.
 ///

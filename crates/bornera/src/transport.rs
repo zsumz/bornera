@@ -1,4 +1,4 @@
-//! Private Mio TCP capability and explicit nonblocking connect lifecycle.
+//! Native Mio TCP capability and explicit nonblocking connect lifecycle.
 
 use std::{
     io::{self, Read, Write},
@@ -9,23 +9,23 @@ use calandria::{Interest, Readiness};
 use mio::{Registry, Token, event::Source, net::TcpStream};
 use socket2::{SockRef, TcpKeepalive};
 
-use crate::{ConnectProgress, SlotTransport, TcpNoDelay, TcpSocketPolicy};
+use crate::{ConnectProgress, RegisteredTransport, SlotTransport, TcpNoDelay, TcpSocketPolicy};
 
+/// Native nonblocking TCP transport registered by a [`crate::ConnectionSet`].
 #[derive(Debug)]
-pub(crate) struct PlaintextTransport {
+pub struct TcpTransport {
     stream: TcpStream,
     phase: TransportPhase,
     readiness: Readiness,
-    interest: Interest,
 }
 
-impl PlaintextTransport {
-    pub(crate) fn connect(address: SocketAddr) -> io::Result<Self> {
+impl TcpTransport {
+    /// Initiates one exact nonblocking TCP connection attempt.
+    pub fn connect(address: SocketAddr) -> io::Result<Self> {
         Ok(Self {
             stream: TcpStream::connect(address)?,
             phase: TransportPhase::Connecting,
             readiness: Readiness::EMPTY,
-            interest: Interest::READ_WRITE,
         })
     }
 
@@ -128,23 +128,15 @@ impl PlaintextTransport {
             Interest::READABLE
         }
     }
-
-    pub(crate) const fn interest(&self) -> Interest {
-        self.interest
-    }
-
-    pub(crate) fn set_interest(&mut self, interest: Interest) {
-        self.interest = interest;
-    }
 }
 
-impl Read for PlaintextTransport {
+impl Read for TcpTransport {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         self.stream.read(buffer)
     }
 }
 
-impl Write for PlaintextTransport {
+impl Write for TcpTransport {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         self.stream.write(buffer)
     }
@@ -154,7 +146,7 @@ impl Write for PlaintextTransport {
     }
 }
 
-impl SlotTransport for PlaintextTransport {
+impl SlotTransport for TcpTransport {
     fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
         Self::finish_connect(self)
     }
@@ -192,7 +184,13 @@ impl SlotTransport for PlaintextTransport {
     }
 }
 
-impl Source for PlaintextTransport {
+impl RegisteredTransport for TcpTransport {
+    fn observe_readiness(&mut self, readiness: Readiness) {
+        self.observe(readiness);
+    }
+}
+
+impl Source for TcpTransport {
     fn register(
         &mut self,
         registry: &Registry,

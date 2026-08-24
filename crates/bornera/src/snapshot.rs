@@ -8,7 +8,7 @@ use calandria_mio::MioPollerSnapshot;
 
 use crate::OwnerFailure;
 
-/// Current physical state of one private plaintext capability.
+/// Current physical state of one registered transport capability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TransportState {
