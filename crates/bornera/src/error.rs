@@ -11,6 +11,7 @@ use crate::OwnerFailure;
 
 /// Failure before one production connection owner becomes observable.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ConnectError<E> {
     /// The operating system rejected creation of the nonblocking stream.
     Io(io::Error),
@@ -18,14 +19,17 @@ pub enum ConnectError<E> {
     Mio(MioError),
     /// The supplied decoder began outside its retained-memory contract.
     Decoder(FrameDecodeError<E>),
-    /// The single transport could not enter its preallocated resource slot.
+    /// The bounded connection set has no free resource slot.
     ResourceAdmission,
+    /// The shared selector owner had already failed permanently.
+    OwnerFailed(OwnerFailure),
 }
 
 /// Fatal divergence inside an otherwise bounded production owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum EngineInvariant {
-    /// A Calandria resource token no longer named the engine's live capability.
+    /// A resource generation already proven live disappeared internally.
     ResourceToken,
     /// An aggregate-internal frame discard escaped into the capability interpreter.
     UnexpectedDiscardEffect,
@@ -47,13 +51,23 @@ pub enum EngineInvariant {
     EventSequenceExhausted,
     /// Closing policy did not retain the mechanical reason required for publication.
     MissingCloseReason,
+    /// A newer core emitted an effect this production owner cannot interpret.
+    UnsupportedCoreEffect,
+    /// A safe transport implementation reported more bytes than the supplied read buffer.
+    TransportReadContract {
+        /// Buffer length supplied to the transport.
+        capacity: usize,
+        /// Impossible byte count reported by the transport.
+        reported: usize,
+    },
 }
 
-/// Fatal owner or readiness-adapter failure returned by a bounded turn.
+/// Fatal slot or readiness-adapter failure returned by a bounded operation.
 ///
-/// Once returned, normal driving must stop and the engine must be consumed by
-/// [`crate::ConnectionEngine::try_recover`].
+/// A connection-local invariant fences that slot. Any post-admission Mio
+/// lifecycle or poll failure fences the shared selector and every live slot.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum EngineError {
     /// Mio registration, polling, or deregistration failed.
     Mio(MioError),
@@ -67,6 +81,7 @@ pub enum EngineError {
 
 /// Commit either rejects before publication or reports fatal owner divergence.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum EngineCommitError<F> {
     /// Policy or writer admission rejected and preserved both permit and frame.
     Rejected(Box<FrameCommitError<F>>),
@@ -94,9 +109,8 @@ impl<E: fmt::Display> fmt::Display for ConnectError<E> {
             Self::Io(source) => source.fmt(formatter),
             Self::Mio(source) => source.fmt(formatter),
             Self::Decoder(source) => source.fmt(formatter),
-            Self::ResourceAdmission => {
-                formatter.write_str("transport resource admission unexpectedly failed")
-            }
+            Self::ResourceAdmission => formatter.write_str("connection set capacity is exhausted"),
+            Self::OwnerFailed(_) => formatter.write_str("shared selector owner previously failed"),
         }
     }
 }
@@ -119,7 +133,7 @@ impl core::error::Error for EngineError {}
 impl fmt::Display for EngineInvariant {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::ResourceToken => "the transport resource token is stale or absent",
+            Self::ResourceToken => "a proven-live transport resource disappeared",
             Self::UnexpectedDiscardEffect => "an internal write discard escaped the aggregate",
             Self::UnexpectedUnitReply => "unit policy transition published a reply",
             Self::DeadlineIndexCapacity => "deadline index exceeded operation capacity",
@@ -134,6 +148,10 @@ impl fmt::Display for EngineInvariant {
             }
             Self::EventSequenceExhausted => "connection event sequence is exhausted",
             Self::MissingCloseReason => "closing connection retained no mechanical reason",
+            Self::UnsupportedCoreEffect => "connection core emitted an unsupported effect",
+            Self::TransportReadContract { .. } => {
+                "transport reported a read larger than the supplied buffer"
+            }
         })
     }
 }

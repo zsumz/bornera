@@ -1,8 +1,8 @@
 //! Deterministic application of commands, timers, and transport observations.
 
 use crate::{
-    AdmissionGate, ConnectionInput, ConnectionMachine, ConnectionPhase, ConnectionTransition,
-    InputDisposition, OperationPhase,
+    AdmissionGate, CompletionMode, ConnectionEffect, ConnectionInput, ConnectionMachine,
+    ConnectionPhase, ConnectionTransition, InputDisposition, OperationOutcome, OperationPhase,
 };
 
 impl ConnectionMachine {
@@ -72,7 +72,7 @@ impl ConnectionMachine {
         if epoch != self.epoch {
             return ConnectionTransition::new(InputDisposition::IgnoredStaleEpoch);
         }
-        let Some(record) = self.matching.get_mut(operation) else {
+        let Some(record) = self.matching.get(operation).copied() else {
             return ConnectionTransition::new(InputDisposition::IgnoredUnknownOperation);
         };
         if record.effect != effect {
@@ -87,13 +87,41 @@ impl ConnectionMachine {
         {
             return ConnectionTransition::new(InputDisposition::IgnoredInvalidPhase);
         }
-        if record.phase != OperationPhase::Terminal {
-            record.phase = OperationPhase::AwaitingReply;
+        self.ledger
+            .borrow_mut()
+            .release_write(record.reservation.write_retained_bytes);
+        if record.completion == CompletionMode::ReplyExpected {
+            let Some(record) = self.matching.get_mut(operation) else {
+                return ConnectionTransition::new(InputDisposition::IgnoredUnknownOperation);
+            };
+            if record.phase != OperationPhase::Terminal {
+                record.phase = OperationPhase::AwaitingReply;
+            }
+            record.write_held = false;
+            return ConnectionTransition::new(InputDisposition::Applied);
+        }
+
+        let Some(completed) = self.matching.remove(operation) else {
+            return ConnectionTransition::new(InputDisposition::IgnoredUnknownOperation);
+        };
+        let mut transition = ConnectionTransition::new(InputDisposition::Applied);
+        transition.push(ConnectionEffect::CancelDeadline {
+            epoch: self.epoch,
+            operation,
+        });
+        if completed.phase != OperationPhase::Terminal {
+            transition.push(ConnectionEffect::PublishOutcome {
+                epoch: self.epoch,
+                operation,
+                outcome: OperationOutcome::WriteComplete {
+                    delivery: completed.delivery,
+                },
+            });
         }
         self.ledger
             .borrow_mut()
-            .release_write(record.reservation.write_bytes);
-        record.write_held = false;
-        ConnectionTransition::new(InputDisposition::Applied)
+            .release_operation(completed.reservation, false);
+        self.finish_drain(&mut transition);
+        transition
     }
 }

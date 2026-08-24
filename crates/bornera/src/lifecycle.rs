@@ -3,9 +3,9 @@
 use bornera_core::{CloseReason, FrameDecoder};
 use calandria::Retained;
 
-use crate::{ConnectionEngine, ConnectionEvent, EngineError, EngineInvariant, InboundClassifier};
+use crate::{ConnectionEvent, ConnectionSlot, EngineError, EngineInvariant, InboundClassifier};
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> ConnectionSlot<D, C>
 where
     D: FrameDecoder,
     D::Frame: Retained,

@@ -1,73 +1,93 @@
-//! Bounded readiness ingestion, deadline delivery, and complete turn interest.
+//! Bounded selector-free deadline and transport progression for one slot.
 
-use bornera_core::{CloseReason, ConnectionInput, ConnectionPhase, FrameDecoder};
-use calandria::{Next, PollEvent, Retained, Span, Turn, WorkCount};
+use bornera_core::{CloseReason, ConnectionInput, FrameDecoder};
+use calandria::{Moment, Retained};
 
 use crate::{
-    ConnectProgress, ConnectionEngine, EngineError, EngineInvariant, InboundClassifier,
-    IoPreference, to_u64,
+    ConnectProgress, ConnectionSlot, EngineError, InboundClassifier, IoPreference, SlotTransport,
+    TransportDiagnostic, TransportFailurePhase, TransportState,
 };
 
-impl<D, C> ConnectionEngine<D, C>
+/// Bounded work and remaining-runnable state from one slot quantum.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct SlotProgress {
+    pub(crate) work: usize,
+    pub(crate) saturated: bool,
+}
+
+impl SlotProgress {
+    /// Returns the number of deadline, decode, connect, read, or write steps completed.
+    pub const fn work(self) -> usize {
+        self.work
+    }
+
+    /// Returns whether more immediately runnable work remained at the hard quantum bound.
+    pub const fn saturated(self) -> bool {
+        self.saturated
+    }
+}
+
+impl<D, C> ConnectionSlot<D, C>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
 {
-    pub(crate) fn drive_turn(&mut self, now: calandria::Moment) -> Result<Turn, EngineError> {
-        let mut work = self.drive_commands()?;
-        work = work.saturating_add(self.ingest_poll_batches()?);
-        work = work.saturating_add(self.drive_deadlines(now)?);
-        let (io_work, io_saturated) = self.drive_io()?;
-        work = work.saturating_add(io_work);
-        work = work.saturating_add(self.sync_interest()?);
-
-        let next = if self.core.snapshot().phase == ConnectionPhase::Closed {
-            Next::Stop
-        } else if self.command_more_pending
-            || self.poll_saturated
-            || io_saturated
-            || self.decoder_pending
-        {
-            Next::Now
-        } else if let Some(deadline) = self.timers.next_deadline() {
-            Next::WakeOr(deadline)
-        } else {
-            Next::Wake
-        };
-        Ok(Turn::new(WorkCount::new(to_u64(work)), next))
+    /// Drives deadlines and a backend-neutral transport under the slot's fixed work bound.
+    pub fn drive_quantum<T: SlotTransport + ?Sized>(
+        &mut self,
+        now: Moment,
+        transport: Option<&mut T>,
+    ) -> Result<SlotProgress, EngineError> {
+        self.ensure_running()?;
+        let result = self.drive_quantum_inner(now, transport);
+        self.latch(result)
     }
 
-    fn ingest_poll_batches(&mut self) -> Result<usize, EngineError> {
-        let mut work = self.ingest_readiness();
-        if self.poll_saturated {
-            let report = self.poller.poll(Span::ZERO, &mut self.poll_events)?;
-            self.observe_poll(report);
-            work = work.saturating_add(self.ingest_readiness());
+    fn drive_quantum_inner<T: SlotTransport + ?Sized>(
+        &mut self,
+        now: Moment,
+        transport: Option<&mut T>,
+    ) -> Result<SlotProgress, EngineError> {
+        let budget = self.limits.io_operations().get();
+        let mut work = self.drive_deadlines(now, budget)?;
+        if self.close_request.is_some() {
+            return Ok(SlotProgress {
+                work,
+                saturated: false,
+            });
         }
-        Ok(work)
-    }
-
-    fn ingest_readiness(&mut self) -> usize {
-        let mut work = 0_usize;
-        for event in self.poll_events.drain() {
-            work = work.saturating_add(1);
-            let PollEvent::Resource { token, readiness } = event else {
-                continue;
-            };
-            match self.resources.get_mut(token) {
-                Ok((_, transport)) => transport.observe(readiness),
-                Err(_) => {
-                    self.stale_resource_events = self.stale_resource_events.saturating_add(1);
-                }
-            }
+        if work == budget {
+            let runnable_io = self.decoder_pending
+                || transport
+                    .as_deref()
+                    .is_some_and(|transport| self.has_runnable_io(transport));
+            return Ok(SlotProgress {
+                work,
+                saturated: self.has_due_deadline(now) || runnable_io,
+            });
         }
-        work
+        let io = self.drive_io(transport, budget - work)?;
+        work = work.saturating_add(io.work);
+        Ok(SlotProgress {
+            work,
+            saturated: io.saturated,
+        })
     }
 
-    fn drive_deadlines(&mut self, now: calandria::Moment) -> Result<usize, EngineError> {
+    fn drive_deadlines(&mut self, now: Moment, budget: usize) -> Result<usize, EngineError> {
         let mut work = 0;
-        while work < self.limits.io_operations().get() {
+        while work < budget {
+            let operation = self.timers.next_deadline();
+            let connect_first = self.is_connecting()
+                && self.connect_deadline.is_elapsed_at(now)
+                && operation.is_none_or(|deadline| self.connect_deadline <= deadline);
+            if connect_first {
+                self.close_for(CloseReason::ConnectTimedOut)?;
+                work += 1;
+                break;
+            }
             let Some(timer) = self.timers.pop_due(now) else {
                 break;
             };
@@ -86,32 +106,41 @@ where
                 .map_err(EngineError::Core)?;
             self.interpret_unit(transition)?;
             work += 1;
+            if self.close_request.is_some() {
+                break;
+            }
         }
         Ok(work)
     }
 
-    pub(crate) fn drive_io(&mut self) -> Result<(usize, bool), EngineError> {
-        let budget = self.limits.io_operations().get();
+    fn drive_io<T: SlotTransport + ?Sized>(
+        &mut self,
+        mut transport: Option<&mut T>,
+        budget: usize,
+    ) -> Result<SlotProgress, EngineError> {
         let mut work = 0;
-        while work < budget && self.transport.is_some() {
+        while work < budget && self.close_request.is_none() {
             if self.decoder_pending {
                 self.drive_decoder_once()?;
                 work += 1;
                 continue;
             }
-            if self.can_finish_connect()? {
-                self.drive_connect_once()?;
+            let Some(transport) = transport.as_deref_mut() else {
+                break;
+            };
+            if self.is_connecting() && transport.can_finish_connect() {
+                self.drive_connect_once(transport)?;
                 work += 1;
                 continue;
             }
             let progressed = match self.io_preference {
-                IoPreference::Read => match self.drive_read_once()? {
+                IoPreference::Read => match self.drive_read_once(transport)? {
                     Some(progressed) => Some(progressed),
-                    None => self.drive_write_once()?,
+                    None => self.drive_write_once(transport)?,
                 },
-                IoPreference::Write => match self.drive_write_once()? {
+                IoPreference::Write => match self.drive_write_once(transport)? {
                     Some(progressed) => Some(progressed),
-                    None => self.drive_read_once()?,
+                    None => self.drive_read_once(transport)?,
                 },
             };
             if progressed.is_none() {
@@ -123,38 +152,49 @@ where
             };
             work += 1;
         }
-        Ok((work, work == budget && self.has_runnable_io()))
+        Ok(SlotProgress {
+            work,
+            saturated: work == budget
+                && self.close_request.is_none()
+                && (self.decoder_pending
+                    || transport
+                        .as_deref()
+                        .is_some_and(|transport| self.has_runnable_io(transport))),
+        })
     }
 
-    fn can_finish_connect(&mut self) -> Result<bool, EngineError> {
-        let Some(token) = self.transport else {
-            return Ok(false);
-        };
-        let (_, transport) = self.resource_mut(token)?;
-        Ok(transport.can_finish_connect())
-    }
-
-    fn drive_connect_once(&mut self) -> Result<(), EngineError> {
-        let Some(token) = self.transport else {
-            return Ok(());
-        };
-        let result = {
-            let (_, transport) = self.resource_mut(token)?;
-            transport.finish_connect()
-        };
-        match result {
-            Ok(ConnectProgress::Opened) => self.publish_transport_opened(),
-            Ok(ConnectProgress::Pending | ConnectProgress::AlreadyOpen) => Ok(()),
-            Err(_) => self.close_for(CloseReason::TransportLost),
+    fn drive_connect_once<T: SlotTransport + ?Sized>(
+        &mut self,
+        transport: &mut T,
+    ) -> Result<(), EngineError> {
+        match transport.finish_connect() {
+            Ok(ConnectProgress::Opened | ConnectProgress::AlreadyOpen) => {
+                if let Err(source) = transport.apply_policy(self.socket_policy) {
+                    self.record_transport_failure(TransportDiagnostic::from_io(
+                        TransportFailurePhase::SocketPolicy,
+                        &source,
+                    ));
+                    return self.close_for(CloseReason::ConnectFailed);
+                }
+                self.transport_state = TransportState::Open;
+                self.publish_transport_opened()
+            }
+            Ok(ConnectProgress::Pending) => Ok(()),
+            Err(source) => {
+                self.record_transport_failure(TransportDiagnostic::from_io(
+                    TransportFailurePhase::Connect,
+                    &source,
+                ));
+                self.close_for(CloseReason::ConnectFailed)
+            }
         }
     }
 
-    pub(crate) fn resource_mut(
-        &mut self,
-        token: calandria::ResourceToken,
-    ) -> Result<(&bornera_core::ConnectionId, &mut crate::PlaintextTransport), EngineError> {
-        self.resources
-            .get_mut(token)
-            .map_err(|_| EngineError::Invariant(EngineInvariant::ResourceToken))
+    fn has_due_deadline(&self, now: Moment) -> bool {
+        (self.is_connecting() && self.connect_deadline.is_elapsed_at(now))
+            || self
+                .timers
+                .next_deadline()
+                .is_some_and(|deadline| deadline.is_elapsed_at(now))
     }
 }

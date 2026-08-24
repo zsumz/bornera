@@ -17,7 +17,7 @@ impl OrderedVerified {
         Self {
             key_space,
             capacity,
-            pending: VecDeque::new(),
+            pending: VecDeque::with_capacity(capacity),
         }
     }
 
@@ -49,11 +49,17 @@ impl OrderedVerified {
     }
 
     pub(crate) fn get(&self, id: OperationId) -> Option<&OperationRecord> {
-        self.pending.iter().find(|record| record.id == id)
+        self.get_indexed(id).map(|(_, record)| record)
+    }
+
+    pub(crate) fn get_indexed(&self, id: OperationId) -> Option<(usize, &OperationRecord)> {
+        let index = self.index_of(id)?;
+        self.pending.get(index).map(|record| (index, record))
     }
 
     pub(crate) fn get_mut(&mut self, id: OperationId) -> Option<&mut OperationRecord> {
-        self.pending.iter_mut().find(|record| record.id == id)
+        let index = self.index_of(id)?;
+        self.pending.get_mut(index)
     }
 
     pub(crate) fn front(&self) -> Option<&OperationRecord> {
@@ -69,7 +75,7 @@ impl OrderedVerified {
     }
 
     pub(crate) fn remove(&mut self, id: OperationId) -> Option<OperationRecord> {
-        let index = self.pending.iter().position(|record| record.id == id)?;
+        let index = self.index_of(id)?;
         self.pending.remove(index)
     }
 
@@ -89,5 +95,9 @@ impl OrderedVerified {
             .iter()
             .filter(|record| record.phase != crate::OperationPhase::Terminal)
             .count()
+    }
+
+    fn index_of(&self, id: OperationId) -> Option<usize> {
+        self.pending.iter().position(|record| record.id == id)
     }
 }

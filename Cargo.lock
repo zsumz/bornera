@@ -4,25 +4,32 @@ version = 4
 
 [[package]]
 name = "bornera"
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
 dependencies = [
  "bornera-core",
  "bytes",
  "calandria",
  "calandria-mio",
  "mio",
+ "socket2",
 ]
 
 [[package]]
 name = "bornera-core"
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
 dependencies = [
  "calandria",
 ]
 
 [[package]]
 name = "bornera-sim"
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
+dependencies = [
+ "bornera",
+ "bornera-core",
+ "calandria",
+ "calandria-sim",
+]
 
 [[package]]
 name = "bytes"
@@ -32,18 +39,27 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "calandria"
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85bc1cec44aa316200dd01fefb6cc6dff8788c734ed06cd81857f9486089aeb0"
+checksum = "af52ded42a9a2804500eb150e1e54a5d655309de2f8c3e971b87b9a08f73f79a"
 
 [[package]]
 name = "calandria-mio"
-version = "0.0.1-rc.1"
+version = "0.0.1-rc.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44fe311b443cc2cef73cc2d68cce3c9f945134aa65c38b755c5651e373273736"
+checksum = "11078309d07df4837863c7309dbb149112dccfcd144645457031b7d3fbf6bd98"
 dependencies = [
  "calandria",
  "mio",
+]
+
+[[package]]
+name = "calandria-sim"
+version = "0.0.1-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4272c15b1ef559cf08ffce85a5b499e83d50a85891fda5eefde38a941643d5f"
+dependencies = [
+ "calandria",
 ]
 
 [[package]]
@@ -60,6 +76,16 @@ checksum = "30d65c71f1ce40ab09135ce117d742b9f8a19ff91a41a8b57ed50bc2de59c427"
 dependencies = [
  "libc",
  "wasi",
+ "windows-sys",
+]
+
+[[package]]
+name = "socket2"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
+dependencies = [
+ "libc",
  "windows-sys",
 ]
 

@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut output = String::new();
-    for in_flight in [1, 64, 256] {
+    for in_flight in [1, 64, 256, 4_096] {
         let mut total_nanos = 0_u128;
         for _ in 0..SAMPLES {
             total_nanos = total_nanos.saturating_add(measure(in_flight)?);
@@ -50,7 +50,7 @@ fn measure(in_flight: usize) -> Result<u128, Box<dyn Error>> {
     let epoch = core.epoch();
     let started = Instant::now();
     for _ in 0..PROGRESS_STEPS {
-        black_box(core.advance_write(epoch, effect, 1)?);
+        let _transition = black_box(core.advance_write(epoch, effect, 1)?);
     }
     Ok(started.elapsed().as_nanos())
 }
@@ -81,7 +81,7 @@ fn fixture(in_flight: usize) -> Result<(ConnectionCore<Frame>, EffectId), Box<dy
             OperationOptions::until(Deadline::at(Moment::from_nanos(u64::MAX)))
                 .session()
                 .retained_bytes(retained)
-                .write_bytes(retained),
+                .write_retained_bytes(retained),
         )?;
         let bytes = std::iter::repeat_n(0, length).collect();
         let (operation, _) = core.commit(permit, Frame(bytes))?;

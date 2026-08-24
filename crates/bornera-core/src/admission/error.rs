@@ -8,6 +8,7 @@ use super::OperationPermit;
 
 /// Why an operation reservation was rejected.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ReserveError {
     /// The connection is not accepting this class of work.
     AdmissionClosed,
@@ -17,7 +18,7 @@ pub enum ReserveError {
     OperationCapacity,
     /// Semantic retained-byte capacity is full.
     RetainedByteCapacity,
-    /// Write-frame count or byte capacity is full.
+    /// Write-frame count or retained-memory capacity is full.
     WriteCapacity,
     /// No match key is currently available.
     MatchKeyExhausted,
@@ -34,7 +35,7 @@ impl fmt::Display for ReserveError {
             Self::DeadlineElapsed => "operation deadline is already elapsed",
             Self::OperationCapacity => "operation count capacity is exhausted",
             Self::RetainedByteCapacity => "retained byte capacity is exhausted",
-            Self::WriteCapacity => "write count or byte capacity is exhausted",
+            Self::WriteCapacity => "write-frame count or retained-memory capacity is exhausted",
             Self::MatchKeyExhausted => "match key space is exhausted",
             Self::IdentityExhausted => "operation or effect identity is exhausted",
             Self::OwnerPoisoned => "connection owner is poisoned",
@@ -46,12 +47,13 @@ impl core::error::Error for ReserveError {}
 
 /// Why a reserved operation could not be committed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CommitErrorKind {
     /// The permit belongs to another machine or epoch.
     ForeignPermit,
     /// Admission closed after reservation and before commit.
     AdmissionClosed,
-    /// The encoded frame exceeds its reserved byte capacity.
+    /// The frame's cached retained footprint exceeds its reserved write-memory capacity.
     FrameTooLarge,
     /// A prior invariant failure poisoned this fixed-epoch owner.
     OwnerPoisoned,
@@ -59,6 +61,7 @@ pub enum CommitErrorKind {
 
 /// Why an atomic frame commit could not transfer ownership to the writer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum FrameCommitFailure {
     /// Connection policy rejected the still-affine permit.
     Policy(CommitErrorKind),
@@ -130,7 +133,9 @@ impl fmt::Display for FrameCommitFailure {
             Self::Policy(kind) => formatter.write_str(match kind {
                 CommitErrorKind::ForeignPermit => "operation permit belongs to another epoch",
                 CommitErrorKind::AdmissionClosed => "admission closed before operation commit",
-                CommitErrorKind::FrameTooLarge => "encoded frame exceeds reserved write bytes",
+                CommitErrorKind::FrameTooLarge => {
+                    "frame retained footprint exceeds reserved write memory"
+                }
                 CommitErrorKind::OwnerPoisoned => "connection owner is poisoned",
             }),
             Self::Writer(failure) => failure.fmt(formatter),

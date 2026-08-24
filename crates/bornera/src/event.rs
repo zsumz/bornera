@@ -5,6 +5,7 @@ use calandria::{Retained, RetainedBytes};
 
 /// One mechanical lifecycle edge for a fixed connection epoch.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ConnectionEvent {
     /// The private transport capability completed establishment.
     TransportOpened {

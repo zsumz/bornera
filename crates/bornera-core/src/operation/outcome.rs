@@ -4,6 +4,7 @@ use crate::{CloseReason, Delivery};
 
 /// The transport-owned phase of an accepted operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum OperationPhase {
     /// The complete frame is queued but transport write ownership has not begun.
     Queued,
@@ -17,6 +18,7 @@ pub enum OperationPhase {
 
 /// A mechanical failure observed by the connection owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum OperationFailure {
     /// The original absolute deadline elapsed.
     DeadlineElapsed,
@@ -33,9 +35,15 @@ pub enum OperationFailure {
 
 /// Exactly one terminal outcome for an accepted operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum OperationOutcome<F> {
     /// The matching discipline assigned a reply to this operation.
     Reply(F),
+    /// The complete frame left local write ownership without awaiting a reply.
+    WriteComplete {
+        /// What local transport ownership can prove.
+        delivery: Delivery,
+    },
     /// Mechanical failure with conservative delivery certainty.
     Failed {
         /// The observed failure.
@@ -48,4 +56,15 @@ pub enum OperationOutcome<F> {
         /// What local transport ownership can prove.
         delivery: Delivery,
     },
+}
+
+impl<F: calandria::Retained> calandria::Retained for OperationOutcome<F> {
+    fn retained_bytes(&self) -> calandria::RetainedBytes {
+        match self {
+            Self::Reply(frame) => frame.retained_bytes(),
+            Self::WriteComplete { .. } | Self::Failed { .. } | Self::Cancelled { .. } => {
+                calandria::RetainedBytes::ZERO
+            }
+        }
+    }
 }

@@ -52,13 +52,14 @@ impl Harness {
             OperationOptions::until(Deadline::at(Moment::from_nanos(20)))
                 .session()
                 .retained_bytes(bytes)
-                .write_bytes(bytes),
+                .write_retained_bytes(bytes),
         )?;
         let key = permit.match_key();
         let (operation, _) = self.core.commit(permit, frame)?;
         let (front, effect) = self
             .core
             .front_write(std::num::NonZeroUsize::MAX)
+            .map_err(std::io::Error::other)?
             .map(|front| (front.operation, front.effect))
             .ok_or_else(|| std::io::Error::other("aggregate retained no write front"))?;
         assert_eq!(front, operation);
@@ -93,7 +94,10 @@ fn partial_writes_cross_one_delivery_boundary_before_opaque_matching() -> Result
     assert_eq!(harness.core.queued_write_frames(), 1);
     let complete = harness.core.advance_write(EPOCH, accepted.effect, 2)?;
     assert!(complete.effects().is_empty());
-    assert_eq!(harness.core.buffered_write_bytes(), RetainedBytes::ZERO);
+    assert_eq!(
+        harness.core.buffered_write_retained_bytes(),
+        RetainedBytes::ZERO
+    );
 
     let reply = harness.core.apply_reply(InboundReply::new(
         EPOCH,
@@ -116,14 +120,17 @@ fn reset_after_partial_progress_preserves_possible_send_and_discards_exact_write
 -> Result<(), Box<dyn Error>> {
     let mut harness = Harness::new()?;
     let accepted = harness.commit(TestFrame(Vec::from([1, 2, 3])))?;
-    harness.core.advance_write(EPOCH, accepted.effect, 1)?;
+    let _transition = harness.core.advance_write(EPOCH, accepted.effect, 1)?;
 
     let closed = harness.core.apply(ConnectionInput::CloseRequested {
         epoch: EPOCH,
         reason: CloseReason::TransportLost,
     })?;
     assert_eq!(harness.core.queued_write_frames(), 0);
-    assert_eq!(harness.core.buffered_write_bytes(), RetainedBytes::ZERO);
+    assert_eq!(
+        harness.core.buffered_write_retained_bytes(),
+        RetainedBytes::ZERO
+    );
     assert_eq!(
         outcome_delivery(closed.effects()),
         Some(Delivery::PossiblySent)
@@ -135,7 +142,7 @@ fn reset_after_partial_progress_preserves_possible_send_and_discards_exact_write
 fn reset_after_complete_write_cannot_strengthen_delivery_certainty() -> Result<(), Box<dyn Error>> {
     let mut harness = Harness::new()?;
     let accepted = harness.commit(TestFrame(Vec::from([1, 2])))?;
-    harness.core.advance_write(EPOCH, accepted.effect, 2)?;
+    let _transition = harness.core.advance_write(EPOCH, accepted.effect, 2)?;
 
     let closed = harness.core.apply(ConnectionInput::CloseRequested {
         epoch: EPOCH,
@@ -153,7 +160,7 @@ fn empty_frame_completion_remains_not_sent_without_a_fabricated_write() -> Resul
 {
     let mut harness = Harness::new()?;
     let accepted = harness.commit(TestFrame(Vec::new()))?;
-    harness.core.advance_write(EPOCH, accepted.effect, 0)?;
+    let _transition = harness.core.advance_write(EPOCH, accepted.effect, 0)?;
 
     let closed = harness.core.apply(ConnectionInput::CloseRequested {
         epoch: EPOCH,

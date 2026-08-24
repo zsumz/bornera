@@ -40,6 +40,7 @@ fn front_identity(
 ) -> Result<(OperationId, EffectId), std::io::Error> {
     machine
         .front_write(std::num::NonZeroUsize::MAX)
+        .map_err(std::io::Error::other)?
         .map(|front| (front.operation, front.effect))
         .ok_or_else(|| std::io::Error::other("aggregate retained no write front"))
 }
@@ -52,7 +53,7 @@ fn commit_one(
         OperationOptions::until(Deadline::at(Moment::from_nanos(20)))
             .session()
             .retained_bytes(RetainedBytes::new(2))
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let key = permit.match_key();
     let (operation, _) = machine.commit(permit, TestFrame(Vec::from([0; 3])))?;
@@ -69,7 +70,7 @@ fn mark_written(
 ) -> Result<(), Box<dyn Error>> {
     let front = front_identity(machine)?;
     assert_eq!(front, (operation, effect));
-    machine.advance_write(machine.epoch(), effect, 3)?;
+    let _transition = machine.advance_write(machine.epoch(), effect, 3)?;
     Ok(())
 }
 
@@ -210,7 +211,7 @@ fn draining_closes_only_after_the_fifo_reply_is_published() -> Result<(), Box<dy
     let mut machine = machine(0, 1, 2)?;
     let (operation, effect, key) = commit_one(&mut machine)?;
     mark_written(&mut machine, operation, effect)?;
-    machine.apply(ConnectionInput::BeginDrain {
+    let _transition = machine.apply(ConnectionInput::BeginDrain {
         epoch: machine.epoch(),
     })?;
 
@@ -237,7 +238,7 @@ fn late_reply_for_cancelled_possible_send_is_consumed_without_second_outcome()
 -> Result<(), Box<dyn Error>> {
     let mut machine = machine(0, 1, 2)?;
     let (operation, effect, key) = commit_one(&mut machine)?;
-    machine.advance_write(machine.epoch(), effect, 1)?;
+    let _transition = machine.advance_write(machine.epoch(), effect, 1)?;
     let cancelled = machine.apply(ConnectionInput::Cancel {
         epoch: machine.epoch(),
         operation,
@@ -248,7 +249,7 @@ fn late_reply_for_cancelled_possible_send_is_consumed_without_second_outcome()
             delivery: Delivery::PossiblySent
         })
     );
-    machine.advance_write(machine.epoch(), effect, 2)?;
+    let _transition = machine.advance_write(machine.epoch(), effect, 2)?;
 
     let late = machine.apply_reply(InboundReply::new(machine.epoch(), key, ReplyFrame("late")))?;
     assert_eq!(late.disposition(), InputDisposition::Applied);
@@ -286,7 +287,7 @@ fn released_keys_wrap_within_the_configured_space_without_aliasing() -> Result<(
     for key in &mut observed {
         let (operation, _, allocated) = commit_one(&mut machine)?;
         *key = allocated;
-        machine.apply(ConnectionInput::Cancel {
+        let _transition = machine.apply(ConnectionInput::Cancel {
             epoch: machine.epoch(),
             operation,
         })?;

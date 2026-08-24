@@ -10,14 +10,15 @@ use std::{
     thread,
 };
 
-use bornera::{EngineCommand, OutboundFrame, TransportState};
+use bornera::{ConnectionCommand, OutboundFrame, TransportState};
 use bornera_core::{
-    CloseReason, ConnectionEpoch, Delivery, OperationFailure, OperationId, OperationOptions,
-    OperationOutcome, RetainedBytes,
+    CloseReason, Delivery, OperationFailure, OperationId, OperationOptions, OperationOutcome,
+    RetainedBytes,
 };
 use calandria::{Deadline, Lane, Moment, Next, Span};
 
-use support::{FRAME_BYTES, TestEngine, engine, request};
+use support::framing::{FRAME_BYTES, request};
+use support::{TestEngine, engine};
 
 #[test]
 fn plaintext_duty_matches_a_fragmented_reply_and_stops_on_peer_close() -> Result<(), Box<dyn Error>>
@@ -39,7 +40,7 @@ fn plaintext_duty_matches_a_fragmented_reply_and_stops_on_peer_close() -> Result
     let operation = engine.commit(permit, OutboundFrame::copy_from_slice(&expected)?)?;
     run_until_stopped(&mut engine)?;
 
-    let outcomes: Vec<_> = engine.drain_outcomes().collect();
+    let outcomes: Vec<_> = engine.drain_outcomes()?.collect();
     assert_eq!(outcomes.len(), 1);
     assert_eq!(outcomes[0].operation(), operation);
     assert!(matches!(
@@ -69,7 +70,7 @@ fn wrong_reply_key_closes_the_epoch_without_reassignment() -> Result<(), Box<dyn
     engine.commit(permit, OutboundFrame::copy_from_slice(&frame)?)?;
     run_until_stopped(&mut engine)?;
 
-    let outcomes: Vec<_> = engine.drain_outcomes().collect();
+    let outcomes: Vec<_> = engine.drain_outcomes()?.collect();
     assert!(matches!(
         outcomes.as_slice(),
         [outcome]
@@ -104,7 +105,7 @@ fn absolute_deadline_after_write_progress_closes_with_possible_send() -> Result<
     let deadline = Deadline::at(Moment::from_nanos(100));
     let options = OperationOptions::until(deadline)
         .retained_bytes(RetainedBytes::new(8))
-        .write_bytes(RetainedBytes::new(8))
+        .write_retained_bytes(RetainedBytes::new(8))
         .session();
     let permit = engine.reserve(Moment::ORIGIN, options)?;
     let frame = request(permit.match_key(), 7);
@@ -113,7 +114,7 @@ fn absolute_deadline_after_write_progress_closes_with_possible_send() -> Result<
 
     let turn = engine.turn_component(deadline.moment())?;
     assert_eq!(turn.next(), Next::Stop);
-    let outcomes: Vec<_> = engine.drain_outcomes().collect();
+    let outcomes: Vec<_> = engine.drain_outcomes()?.collect();
     assert!(matches!(
         outcomes.as_slice(),
         [outcome]
@@ -137,59 +138,58 @@ fn command_mailbox_rejects_at_its_exact_count_bound() -> Result<(), Box<dyn Erro
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let engine = engine(listener.local_addr()?)?;
     let port = engine.port();
-    let epoch = engine.snapshot().connection.epoch;
+    let connection = port.connection();
     for operation in 0..8 {
-        port.cancel(epoch, OperationId::new(operation))?;
+        port.cancel(OperationId::new(operation))?;
     }
-    let rejected = EngineCommand::Cancel {
-        epoch,
+    let rejected = ConnectionCommand::Cancel {
+        connection,
         operation: OperationId::new(8),
     };
     let error = port
-        .cancel(epoch, OperationId::new(8))
+        .cancel(OperationId::new(8))
         .err()
         .ok_or_else(|| std::io::Error::other("full command lane accepted another command"))?;
     assert_eq!(error.into_item(), rejected);
-    let work = engine.snapshot().commands.lane(Lane::Work);
+    let work = engine.set_snapshot().commands.lane(Lane::Work);
     assert_eq!(work.queued_messages(), 8);
     assert_eq!(work.message_rejections(), 1);
     Ok(())
 }
 
 #[test]
-fn stale_epoch_command_cannot_close_the_live_transport() -> Result<(), Box<dyn Error>> {
+fn mailbox_enqueue_is_queued_not_applied_confirmation() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let mut engine = engine(listener.local_addr()?)?;
     let port = engine.port();
-    let epoch = engine.snapshot().connection.epoch;
-    port.close(ConnectionEpoch::new(epoch.get() + 1))?;
+    port.open_admission()?;
     engine.turn_component(Moment::ORIGIN)?;
-    assert!(engine.snapshot().transport != TransportState::Closed);
-    assert_eq!(engine.snapshot().stale_commands, 1);
+    if engine.snapshot()?.transport == TransportState::Closed {
+        return Err(std::io::Error::other("queued admission command closed transport").into());
+    }
+    assert!(
+        engine
+            .drain_events()?
+            .all(|event| !matches!(event, bornera::ConnectionEvent::AdmissionOpened { .. }))
+    );
 
-    port.close(epoch)?;
+    port.close()?;
     let turn = engine.turn_component(Moment::ORIGIN)?;
     assert_eq!(turn.next(), Next::Stop);
-    assert_eq!(engine.snapshot().transport, TransportState::Closed);
-    let rejected = EngineCommand::Close { epoch };
-    let error = port
-        .close(epoch)
-        .err()
-        .ok_or_else(|| std::io::Error::other("closed engine accepted another command"))?;
-    assert_eq!(error.into_item(), rejected);
+    assert_eq!(engine.snapshot()?.transport, TransportState::Closed);
     Ok(())
 }
 
-fn options(write_bytes: u64) -> OperationOptions {
+fn options(write_retained_bytes: u64) -> OperationOptions {
     OperationOptions::until(Deadline::at(Moment::from_nanos(u64::MAX)))
-        .retained_bytes(RetainedBytes::new(write_bytes))
-        .write_bytes(RetainedBytes::new(write_bytes))
+        .retained_bytes(RetainedBytes::new(write_retained_bytes))
+        .write_retained_bytes(RetainedBytes::new(write_retained_bytes))
 }
 
 fn run_until_written(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
     for _ in 0..128 {
         engine.turn_component(Moment::ORIGIN)?;
-        if engine.snapshot().queued_write_frames == 0 {
+        if engine.snapshot()?.queued_write_frames == 0 {
             return Ok(());
         }
         engine.poll_io(Span::from_nanos(10_000_000))?;

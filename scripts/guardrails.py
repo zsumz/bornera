@@ -34,8 +34,10 @@ CALLBACK_TRAIT = re.compile(r"\b(?:Fn|FnMut|FnOnce)\s*(?:\(|<|\+)")
 TEST_MODULE_EDGE = re.compile(r'#\[cfg\(test\)\]\s*mod\s+[A-Za-z0-9_]+\s*;')
 BOUNDED_COLLECTION_OWNERS = {
     "crates/bornera-core/src/admission/ledger.rs",
+    "crates/bornera-core/src/admission/key_set.rs",
     "crates/bornera-core/src/connection/transition.rs",
     "crates/bornera-core/src/connection/recovery.rs",
+    "crates/bornera-core/src/connection/recovery_item.rs",
     "crates/bornera-core/src/connection/journal.rs",
     "crates/bornera-core/src/matching/ordered_verified.rs",
     "crates/bornera-core/src/write/queue.rs",

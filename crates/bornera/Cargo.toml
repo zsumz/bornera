@@ -23,6 +23,7 @@ calandria = { workspace = true, features = ["std"] }
 calandria-mio.workspace = true
 bornera-core.workspace = true
 mio.workspace = true
+socket2.workspace = true
 
 [lints]
 workspace = true

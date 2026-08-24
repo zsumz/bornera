@@ -11,8 +11,8 @@ mod operation;
 mod write;
 
 pub use admission::{
-    AdmissionClass, AdmissionGate, CommitErrorKind, FrameCommitError, FrameCommitFailure,
-    OperationOptions, OperationPermit, ReserveError,
+    AdmissionClass, AdmissionGate, CommitErrorKind, CompletionMode, FrameCommitError,
+    FrameCommitFailure, OperationOptions, OperationPermit, ReserveError,
 };
 pub use calandria::{Deadline, Moment, RetainedBytes};
 pub use connection::{
@@ -30,7 +30,6 @@ pub use limits::{ConnectionLimits, LimitsError, MatchKeySpace};
 pub use matching::OrderedVerified;
 pub use operation::{OperationFailure, OperationOutcome, OperationPhase};
 pub use write::{
-    DiscardedWrite, DiscardedWrites, WriteAccepted, WriteAdmissionError, WriteAdmissionFailure,
-    WriteBoundary, WriteFrame, WriteIdentityKind, WriteProgress, WriteProgressError, WriteQueue,
-    WriteQueueLimits, WriteSlice,
+    DiscardedWrite, DiscardedWrites, FrameContractViolation, FrameMeasure, WriteAdmissionFailure,
+    WriteFrame, WriteIdentityKind, WriteProgressError, WriteSlice,
 };

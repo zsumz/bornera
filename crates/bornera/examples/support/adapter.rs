@@ -3,8 +3,9 @@
 use std::{error::Error, fmt, net::SocketAddr, num::NonZeroUsize};
 
 use bornera::{
-    ConnectionEngine, DecoderLimits, EngineConfig, EngineLimits, InboundClassifier, OutboundFrame,
-    PublicationLimits, TurnLimits,
+    ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
+    InboundClassifier, IoLimits, OutboundFrame, PublicationLimits, StandaloneConnection,
+    StandaloneConnectionConfig,
 };
 use bornera_core::{
     ConnectionEpoch, ConnectionId, ConnectionLimits, EndpointId, FrameDecoder, LaneId, MatchKey,
@@ -80,7 +81,7 @@ impl InboundClassifier<ExampleFrame> for ExampleClassifier {
     }
 }
 
-type ExampleEngine = ConnectionEngine<ExampleDecoder, ExampleClassifier>;
+type ExampleEngine = StandaloneConnection<ExampleDecoder, ExampleClassifier>;
 
 pub(crate) fn prepared_engine(
     address: SocketAddr,
@@ -92,22 +93,29 @@ pub(crate) fn prepared_engine(
         RetainedBytes::new(4_096),
         MatchKeySpace::new(0, 32)?,
     )?;
-    let limits = EngineLimits::new(
+    let limits = ConnectionSlotLimits::new(
         connection,
         DecoderLimits::new(RetainedBytes::new(64), RetainedBytes::new(64)),
-        TurnLimits::new(nonzero(16)?, nonzero(8)?, nonzero(8)?, nonzero(8)?),
+        IoLimits::new(nonzero(8)?, nonzero(8)?),
         PublicationLimits::new(nonzero(8)?),
     )?;
-    let config = EngineConfig {
-        endpoint: EndpointId::new(1),
-        lane: LaneId::new(2),
-        connection: ConnectionId::new(3),
-        epoch: ConnectionEpoch::new(4),
+    let identity = ConnectionIdentity::new(
+        EndpointId::new(1),
+        LaneId::new(2),
+        ConnectionId::new(3),
+        ConnectionEpoch::new(4),
+    );
+    let connection = ConnectionConfig::new(
+        identity,
         address,
-        resource_owner: ResourceOwnerId::new(5),
-        timer_owner: TimerOwnerId::new(6),
-    };
-    let mut engine = ConnectionEngine::connect(
+        Deadline::at(Moment::from_nanos(u64::MAX)),
+        TimerOwnerId::new(6),
+    );
+    let config = StandaloneConnectionConfig::new(
+        ConnectionSetConfig::new(ResourceOwnerId::new(5)),
+        connection,
+    );
+    let mut engine = StandaloneConnection::connect(
         config,
         limits,
         ExampleDecoder { bytes: Vec::new() },
@@ -115,7 +123,7 @@ pub(crate) fn prepared_engine(
     )?;
     let options = OperationOptions::until(Deadline::at(Moment::from_nanos(u64::MAX)))
         .retained_bytes(RetainedBytes::new(8))
-        .write_bytes(RetainedBytes::new(8))
+        .write_retained_bytes(RetainedBytes::new(8))
         .session();
     let permit = engine.reserve(Moment::ORIGIN, options)?;
     let mut frame = [0_u8; FRAME_BYTES];

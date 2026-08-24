@@ -15,12 +15,28 @@ unassigned_packages = "deny"
 cycles = "deny"
 
 [[dependencies.crate_root]]
+package = "calandria"
+root = "calandria"
+reason = "The published Calandria package exposes the calandria library root."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.0.1-rc.2"
+
+[[dependencies.crate_root]]
 package = "calandria-mio"
 root = "calandria_mio"
 reason = "The published calandria-mio package exposes the calandria_mio library root."
 [dependencies.crate_root.source]
 kind = "registry"
-requirement = "=0.0.1-rc.1"
+requirement = "=0.0.1-rc.2"
+
+[[dependencies.crate_root]]
+package = "calandria-sim"
+root = "calandria_sim"
+reason = "The published calandria-sim package exposes the calandria_sim library root."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.0.1-rc.2"
 
 [[dependencies.crate_root]]
 package = "mio"
@@ -29,6 +45,14 @@ reason = "The published Mio package exposes the mio library root used for privat
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "1.2.2"
+
+[[dependencies.crate_root]]
+package = "socket2"
+root = "socket2"
+reason = "The published socket2 package exposes the socket2 library root used for TCP policy."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "0.6.5"
 
 [source.rust]
 module_docs = "required"
@@ -126,8 +150,8 @@ external = "locked"
 [[layer]]
 name = "simulation"
 packages = ["bornera-sim"]
-may_depend_on = []
-reason = "Simulation begins dependency-free; its core edge is granted with the first consuming code."
+may_depend_on = ["core", "production"]
+reason = "Deterministic replay drives the production selector-free connection slot through simulated Calandria time and transport capabilities."
 
 [layer.dependencies]
 external = "locked"

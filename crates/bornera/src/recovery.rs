@@ -1,4 +1,4 @@
-//! Explicit conservative recovery after a production owner cannot continue.
+//! Explicit conservative recovery after a connection owner cannot continue.
 
 use core::fmt;
 
@@ -6,11 +6,13 @@ use bornera_core::{DiscardedWrite, FrameDecoder, RecoveredOperation};
 use calandria::Retained;
 
 use crate::{
-    ConnectionEngine, ConnectionEvent, EngineError, EngineOutcome, InboundClassifier, OutboundFrame,
+    ConnectionEvent, EngineError, EngineOutcome, InboundClassifier, OutboundFrame,
+    StandaloneConnection,
 };
 
 /// Mechanical category explaining why normal owner finalization was abandoned.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum OwnerFailure {
     /// Deterministic aggregate ownership diverged or was poisoned.
     Core,
@@ -33,6 +35,7 @@ impl From<&EngineError> for OwnerFailure {
 
 /// Bounded owner contents transferred to the parent after fatal failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct RecoveryReport<F, R> {
     /// Exact failed socket lifetime.
     pub epoch: bornera_core::ConnectionEpoch,
@@ -50,12 +53,12 @@ pub struct RecoveryReport<F, R> {
     pub ownership_diverged: bool,
 }
 
-/// Rejected recovery attempt that still owns the healthy connection engine.
+/// Rejected recovery attempt that still owns the healthy connection.
 pub struct RecoveryWhileRunning<D, C>
 where
     D: FrameDecoder,
 {
-    engine: Box<ConnectionEngine<D, C>>,
+    connection: Box<StandaloneConnection<D, C>>,
 }
 
 impl<D, C> fmt::Debug for RecoveryWhileRunning<D, C>
@@ -73,48 +76,88 @@ impl<D, C> RecoveryWhileRunning<D, C>
 where
     D: FrameDecoder,
 {
-    /// Returns immutable access to the still-running owner.
-    pub fn engine(&self) -> &ConnectionEngine<D, C> {
-        &self.engine
+    /// Returns immutable access to the still-running capacity-one owner.
+    pub fn connection(&self) -> &StandaloneConnection<D, C> {
+        &self.connection
     }
 
-    /// Recovers the still-running owner without closing its capabilities.
-    pub fn into_engine(self) -> ConnectionEngine<D, C> {
-        *self.engine
+    /// Recovers the still-running capacity-one owner intact.
+    pub fn into_connection(self) -> StandaloneConnection<D, C> {
+        *self.connection
     }
 }
 
-impl<D, C> ConnectionEngine<D, C>
+impl<D, C> StandaloneConnection<D, C>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
 {
-    /// Tries to consume a failed engine and transfer all recoverable ownership.
+    /// Tries to consume a failed connection and transfer all recoverable ownership.
     ///
-    /// A running engine is returned intact in the error variant. A failed fixed
-    /// epoch cannot be resumed or reused after successful recovery.
+    /// A running owner is returned intact. A failed fixed epoch cannot be
+    /// resumed or reused after successful recovery.
     pub fn try_recover(
-        mut self,
+        self,
     ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, RecoveryWhileRunning<D, C>> {
-        let Some(reason) = self.state.failure() else {
+        let failure = self
+            .set
+            .entry(self.connection)
+            .ok()
+            .and_then(|entry| entry.slot.state.failure());
+        let Some(reason) = failure else {
             return Err(RecoveryWhileRunning {
-                engine: Box::new(self),
+                connection: Box::new(self),
             });
         };
         Ok(self.recover_owned(reason))
     }
 
-    /// Explicitly abandons a running owner or recovers one using its latched failure.
-    pub fn abandon(mut self, requested: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
-        let reason = self.state.failure().unwrap_or(requested);
+    /// Explicitly abandons a running owner or recovers its latched failure.
+    pub fn abandon(self, requested: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
+        let reason = self
+            .set
+            .entry(self.connection)
+            .ok()
+            .and_then(|entry| entry.slot.state.failure())
+            .unwrap_or(requested);
         self.recover_owned(reason)
     }
 
-    fn recover_owned(&mut self, reason: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
-        drop(self.commands.close());
-        self.command_more_pending = false;
-        let cleanup_failed = self.close_transport().is_err();
+    fn recover_owned(mut self, reason: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
+        let resource = self.connection.resource();
+        let epoch = self.connection.epoch();
+        let (poller, resources) = (&mut self.set.poller, &mut self.set.resources);
+        let Ok((_, entry)) = resources.get_mut(resource) else {
+            return empty_diverged(epoch, reason);
+        };
+        let cleanup_failed = entry
+            .transport
+            .as_mut()
+            .is_some_and(|transport| poller.deregister(transport, resource).is_err());
+        entry.slot.recover_owned(reason, cleanup_failed)
+    }
+}
+
+impl<D, C> crate::ConnectionSlot<D, C>
+where
+    D: FrameDecoder,
+    D::Frame: Retained,
+    C: InboundClassifier<D::Frame>,
+{
+    /// Explicitly transfers all remaining ownership from this slot.
+    ///
+    /// The caller must first release any physical transport capability. The
+    /// recovered slot is permanently unusable after this operation.
+    pub fn recover(mut self, reason: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
+        self.recover_owned(reason, false)
+    }
+
+    pub(crate) fn recover_owned(
+        &mut self,
+        reason: OwnerFailure,
+        cleanup_failed: bool,
+    ) -> RecoveryReport<OutboundFrame, D::Frame> {
         let recovery = self.core.recover();
         let mut outcomes: Vec<_> = self.outcomes.drain().collect();
         outcomes.extend(self.recovery_outcomes.drain());
@@ -129,5 +172,20 @@ where
             events,
             ownership_diverged: recovery.ownership_diverged || cleanup_failed,
         }
+    }
+}
+
+fn empty_diverged<F, R>(
+    epoch: bornera_core::ConnectionEpoch,
+    reason: OwnerFailure,
+) -> RecoveryReport<F, R> {
+    RecoveryReport {
+        epoch,
+        reason,
+        operations: Vec::new(),
+        unmatched_writes: Vec::new(),
+        outcomes: Vec::new(),
+        events: Vec::new(),
+        ownership_diverged: true,
     }
 }

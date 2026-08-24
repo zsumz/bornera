@@ -4,10 +4,11 @@ use core::fmt;
 
 use calandria::RetainedBytes;
 
-use crate::{ConnectionEpoch, Delivery, EffectId};
+use crate::{ConnectionEpoch, EffectId};
 
 /// Pending identity category that a new frame attempted to reuse.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum WriteIdentityKind {
     /// Accepted operation identity.
     Operation,
@@ -17,6 +18,7 @@ pub enum WriteIdentityKind {
 
 /// Why a complete frame could not enter the bounded writer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum WriteAdmissionFailure {
     /// The frame names an epoch other than the writer's fixed epoch.
     StaleEpoch {
@@ -45,7 +47,7 @@ pub enum WriteAdmissionFailure {
 
 /// Rejected admission that preserves the exact unsent frame.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct WriteAdmissionError<F> {
+pub(crate) struct WriteAdmissionError<F> {
     failure: WriteAdmissionFailure,
     frame: F,
 }
@@ -56,17 +58,12 @@ impl<F> WriteAdmissionError<F> {
     }
 
     /// Returns the mechanical admission failure.
-    pub const fn failure(&self) -> WriteAdmissionFailure {
+    pub(crate) const fn failure(&self) -> WriteAdmissionFailure {
         self.failure
     }
 
-    /// Returns certainty for a frame never accepted by the writer.
-    pub const fn delivery(&self) -> Delivery {
-        Delivery::NotSent
-    }
-
     /// Recovers the exact unadmitted frame.
-    pub fn into_frame(self) -> F {
+    pub(crate) fn into_frame(self) -> F {
         self.frame
     }
 }
@@ -92,6 +89,7 @@ impl fmt::Display for WriteAdmissionFailure {
 
 /// Why reported transport progress could not mutate the FIFO front.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum WriteProgressError {
     /// The progress event belongs to another epoch.
     StaleEpoch {
@@ -116,6 +114,13 @@ pub enum WriteProgressError {
         /// Bytes remaining before the report.
         remaining: usize,
     },
+    /// Cached progress exceeded the frame's commit-time wire measurement.
+    ProgressAccountingOverflow {
+        /// Complete wire length sampled at commit.
+        measured: usize,
+        /// Bytes already reported as written.
+        written: usize,
+    },
     /// Internal retained-byte release exceeded the writer's accounted total.
     RetainedAccountingUnderflow {
         /// Bytes accounted before release.
@@ -132,6 +137,9 @@ impl fmt::Display for WriteProgressError {
             Self::NoPendingWrite => "no ordered write is pending",
             Self::OutOfOrderEffect { .. } => "write progress does not name the FIFO front",
             Self::ExceedsRemaining { .. } => "write progress exceeds remaining frame bytes",
+            Self::ProgressAccountingOverflow { .. } => {
+                "write progress exceeded the committed frame measurement"
+            }
             Self::RetainedAccountingUnderflow { .. } => {
                 "write retained-byte accounting underflowed"
             }

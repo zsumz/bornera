@@ -5,6 +5,7 @@ use calandria::{Retained, RetainedBytes};
 
 /// One terminal outcome labeled with its exact connection lifetime and operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub struct EngineOutcome<F> {
     epoch: ConnectionEpoch,
     operation: OperationId,
@@ -47,11 +48,6 @@ impl<F> EngineOutcome<F> {
 
 impl<F: Retained> Retained for EngineOutcome<F> {
     fn retained_bytes(&self) -> RetainedBytes {
-        match &self.outcome {
-            OperationOutcome::Reply(frame) => frame.retained_bytes(),
-            OperationOutcome::Failed { .. } | OperationOutcome::Cancelled { .. } => {
-                RetainedBytes::ZERO
-            }
-        }
+        self.outcome.retained_bytes()
     }
 }

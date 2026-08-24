@@ -40,6 +40,7 @@ fn front_identity(
 ) -> Result<(OperationId, EffectId), std::io::Error> {
     machine
         .front_write(std::num::NonZeroUsize::MAX)
+        .map_err(std::io::Error::other)?
         .map(|front| (front.operation, front.effect))
         .ok_or_else(|| std::io::Error::other("aggregate retained no write front"))
 }
@@ -53,7 +54,7 @@ fn commit_one(
         OperationOptions::until(Deadline::at(Moment::from_nanos(deadline)))
             .session()
             .retained_bytes(RetainedBytes::new(2))
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let (operation, _) = machine.commit(permit, frame(3))?;
     let (_, effect) = front_identity(machine)?;
@@ -149,7 +150,10 @@ fn possibly_sent_cancellation_stops_observation_without_claiming_remote_cancel()
 
     let completed = machine.advance_write(machine.epoch(), effect, 2)?;
     assert_eq!(completed.disposition(), InputDisposition::Applied);
-    assert_eq!(machine.snapshot().buffered_write_bytes, RetainedBytes::ZERO);
+    assert_eq!(
+        machine.snapshot().buffered_write_retained_bytes,
+        RetainedBytes::ZERO
+    );
 
     let repeated = machine.apply(ConnectionInput::Cancel {
         epoch: machine.epoch(),
@@ -179,7 +183,7 @@ fn drain_closes_admission_before_finishing_accepted_work() -> Result<(), Box<dyn
                 Moment::ORIGIN,
                 OperationOptions::until(Deadline::at(Moment::from_nanos(10)))
                     .session()
-                    .write_bytes(RetainedBytes::new(1)),
+                    .write_retained_bytes(RetainedBytes::new(1)),
             )
             .err(),
         Some(ReserveError::AdmissionClosed)
@@ -206,7 +210,7 @@ fn closure_emits_one_terminal_outcome_per_unfinished_operation() -> Result<(), B
     let mut machine = machine()?;
     let (first, first_effect) = commit_one(&mut machine, 10)?;
     let (second, _) = commit_one(&mut machine, 11)?;
-    machine.advance_write(machine.epoch(), first_effect, 1)?;
+    let _transition = machine.advance_write(machine.epoch(), first_effect, 1)?;
 
     let closed = machine.apply(ConnectionInput::CloseRequested {
         epoch: machine.epoch(),
@@ -260,7 +264,7 @@ fn an_outstanding_permit_cannot_commit_after_drain_begins() -> Result<(), Box<dy
         Moment::ORIGIN,
         OperationOptions::until(Deadline::at(Moment::from_nanos(10)))
             .session()
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let drain = machine.apply(ConnectionInput::BeginDrain {
         epoch: machine.epoch(),

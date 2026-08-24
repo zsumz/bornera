@@ -112,7 +112,7 @@ fn aggregate_rejection_preserves_the_borrowed_chunk_and_decoder_state() -> Resul
 {
     let mut driver = driver(5)?;
     driver.feed(&[4, b'a', b'b'])?;
-    let rejected = [b'c', b'd', b'e'];
+    let rejected = *b"cde";
     assert_eq!(
         driver.feed(&rejected),
         Err(FrameDecodeError::RetainedByteCapacity {
@@ -121,7 +121,7 @@ fn aggregate_rejection_preserves_the_borrowed_chunk_and_decoder_state() -> Resul
             limit: RetainedBytes::new(5),
         })
     );
-    assert_eq!(rejected, [b'c', b'd', b'e']);
+    assert_eq!(rejected, *b"cde");
     assert_eq!(driver.retained_bytes(), RetainedBytes::new(3));
     driver.feed(&rejected[..2])?;
     assert_eq!(driver.next_frame()?, Some(b"abcd".to_vec()));

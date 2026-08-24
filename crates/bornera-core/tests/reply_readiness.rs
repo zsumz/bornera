@@ -35,7 +35,7 @@ fn commit(
         OperationOptions::until(Deadline::at(Moment::from_nanos(20)))
             .session()
             .retained_bytes(RetainedBytes::new(3))
-            .write_bytes(RetainedBytes::new(3)),
+            .write_retained_bytes(RetainedBytes::new(3)),
     )?;
     let key = permit.match_key();
     let (operation, _) = core.commit(permit, TestFrame(Vec::from([1, 2, 3])))?;
@@ -59,7 +59,7 @@ fn is_unexpected_close(effect: &ConnectionEffect<TestFrame>) -> bool {
 fn matching_reply_during_partial_write_closes_without_success() -> Result<(), Box<dyn Error>> {
     let mut core = core()?;
     let (operation, effect, key) = commit(&mut core)?;
-    core.advance_write(core.epoch(), effect, 1)?;
+    let _transition = core.advance_write(core.epoch(), effect, 1)?;
 
     let transition = core.apply_reply(InboundReply::new(
         core.epoch(),
@@ -84,7 +84,7 @@ fn matching_reply_during_partial_write_closes_without_success() -> Result<(), Bo
 fn reply_to_cancelled_partial_write_closes_without_second_outcome() -> Result<(), Box<dyn Error>> {
     let mut core = core()?;
     let (operation, effect, key) = commit(&mut core)?;
-    core.advance_write(core.epoch(), effect, 1)?;
+    let _transition = core.advance_write(core.epoch(), effect, 1)?;
     let cancelled = core.apply(ConnectionInput::Cancel {
         epoch: core.epoch(),
         operation,

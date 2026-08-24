@@ -48,7 +48,7 @@ fn commit(
         OperationOptions::until(Deadline::at(Moment::from_nanos(20)))
             .session()
             .retained_bytes(retained)
-            .write_bytes(retained),
+            .write_retained_bytes(retained),
     )?;
     let (operation, _) = core.commit(permit, Frame(bytes))?;
     let effect = core
@@ -63,7 +63,7 @@ fn reconciliation_journal_preserves_removed_operations_and_frames() -> Result<()
     let (completed, completed_effect) = commit(&mut core, Vec::from([1]))?;
     let (journaled, _) = commit(&mut core, Vec::from([2]))?;
     let (missing, missing_effect) = commit(&mut core, Vec::from([3]))?;
-    core.advance_write(core.epoch(), completed_effect, 1)?;
+    let _transition = core.advance_write(core.epoch(), completed_effect, 1)?;
     core.begin_recovery_journal()?;
     let transition = core.machine.apply(ConnectionInput::CloseRequested {
         epoch: core.epoch(),
@@ -118,7 +118,7 @@ fn journal_order_survives_an_interior_destructive_failure() -> Result<(), Box<dy
     let (first, _) = commit(&mut core, Vec::from([1]))?;
     let (middle, middle_effect) = commit(&mut core, Vec::from([2]))?;
     let (last, _) = commit(&mut core, Vec::from([3]))?;
-    core.begin_recovery_journal()?;
+    core.begin_operation_recovery_journal(middle)?;
     let transition = core.machine.apply(ConnectionInput::Cancel {
         epoch: core.epoch(),
         operation: middle,
@@ -161,11 +161,14 @@ fn journal_order_survives_an_interior_destructive_failure() -> Result<(), Box<dy
 fn recovery_returns_unmatched_writer_frames_instead_of_dropping_them() -> Result<(), Box<dyn Error>>
 {
     let mut core = core()?;
+    let frame = Frame(Vec::from([7, 8]));
+    let measure = crate::FrameMeasure::capture(&frame);
     core.writes.admit(
         core.epoch(),
         OperationId::new(99),
         EffectId::new(100),
-        Frame(Vec::from([7, 8])),
+        measure,
+        frame,
     )?;
 
     let Err(error) = core.apply(ConnectionInput::OpenAdmission {
@@ -191,8 +194,10 @@ fn write_progress_without_policy_is_recovery_total() -> Result<(), Box<dyn Error
     let mut core = core()?;
     let operation = OperationId::new(99);
     let effect = EffectId::new(100);
+    let frame = Frame(Vec::from([7, 8]));
+    let measure = crate::FrameMeasure::capture(&frame);
     core.writes
-        .admit(core.epoch(), operation, effect, Frame(Vec::from([7, 8])))?;
+        .admit(core.epoch(), operation, effect, measure, frame)?;
 
     let Err(error) = core.advance_write(core.epoch(), effect, 1) else {
         return Err(std::io::Error::other("writer-only progress was accepted").into());
@@ -211,6 +216,42 @@ fn write_progress_without_policy_is_recovery_total() -> Result<(), Box<dyn Error
     assert_eq!(recovery.unmatched_writes.len(), 1);
     assert_eq!(recovery.unmatched_writes[0].operation, operation);
     assert_eq!(recovery.unmatched_writes[0].written, 1);
+    assert_eq!(
+        recovery.unmatched_writes[0].delivery,
+        Delivery::PossiblySent
+    );
+    assert_eq!(recovery.unmatched_writes[0].frame, Frame(Vec::from([7, 8])));
+    assert!(recovery.ownership_diverged);
+    Ok(())
+}
+
+#[test]
+fn completed_write_without_policy_retains_the_exact_frame_for_recovery()
+-> Result<(), Box<dyn Error>> {
+    let mut core = core()?;
+    let operation = OperationId::new(99);
+    let effect = EffectId::new(100);
+    let frame = Frame(Vec::from([7, 8]));
+    let measure = crate::FrameMeasure::capture(&frame);
+    core.writes
+        .admit(core.epoch(), operation, effect, measure, frame)?;
+
+    let Err(error) = core.advance_write(core.epoch(), effect, 2) else {
+        return Err(std::io::Error::other("writer-only completion was accepted").into());
+    };
+    assert_eq!(
+        error,
+        ConnectionCoreError::Invariant(ConnectionCoreInvariant::UnexpectedWrite {
+            operation,
+            effect,
+        })
+    );
+
+    let recovery = core.recover();
+    assert!(recovery.operations.is_empty());
+    assert_eq!(recovery.unmatched_writes.len(), 1);
+    assert_eq!(recovery.unmatched_writes[0].operation, operation);
+    assert_eq!(recovery.unmatched_writes[0].written, 2);
     assert_eq!(
         recovery.unmatched_writes[0].delivery,
         Delivery::PossiblySent

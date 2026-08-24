@@ -26,7 +26,7 @@ impl ConnectionMachine {
         let reservation = self
             .ledger
             .borrow_mut()
-            .reserve(options.retained(), options.write())?;
+            .reserve(options.retained(), options.write_retained())?;
         let Some((operation, effect)) = self.identities.take() else {
             self.ledger.borrow_mut().rollback_permit(reservation);
             return Err(ReserveError::IdentityExhausted);
@@ -39,6 +39,7 @@ impl ConnectionMachine {
             effect,
             deadline: options.deadline(),
             class: options.class(),
+            completion: options.completion(),
             reservation,
             active: true,
         })

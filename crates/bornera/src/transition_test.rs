@@ -9,8 +9,9 @@ use bornera_core::{
 use calandria::{Readiness, ResourceOwnerId, Retained, RetainedBytes, TimerOwnerId};
 
 use crate::{
-    ConnectionEngine, DecoderLimits, EngineCommitError, EngineConfig, EngineLimits,
-    InboundClassifier, OutboundFrame, OwnerFailure, PublicationLimits, TurnLimits,
+    ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
+    EngineCommitError, EngineError, InboundClassifier, IoLimits, OutboundFrame, OwnerFailure,
+    PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
 };
 
 #[derive(Debug)]
@@ -56,20 +57,29 @@ impl InboundClassifier<Frame> for Classifier {
 #[test]
 fn cleanup_failure_keeps_policy_closing_and_never_publishes_closed() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut engine = engine(listener.local_addr()?)?;
-    let token = engine
+    let mut connection = connection(listener.local_addr()?)?;
+    let resource = connection.connection.resource();
+    let (poller, resources) = (&mut connection.set.poller, &mut connection.set.resources);
+    let (_, entry) = resources
+        .get_mut(resource)
+        .map_err(|_| std::io::Error::other("connection token disappeared"))?;
+    let transport = entry
         .transport
-        .ok_or_else(|| std::io::Error::other("engine owns no transport token"))?;
-    let _transport = engine
-        .resources
-        .remove(token)
-        .map_err(|_| std::io::Error::other("transport fault injection failed"))?;
+        .as_mut()
+        .ok_or_else(|| std::io::Error::other("connection owns no transport"))?;
+    poller.deregister(transport, resource)?;
 
-    assert!(engine.close().is_err());
-    assert_eq!(engine.core.snapshot().phase, ConnectionPhase::Closing);
+    assert!(matches!(
+        connection.finalize(bornera_core::CloseReason::Requested),
+        Err(EngineError::Mio(
+            calandria_mio::MioError::NotRegistered { .. }
+        ))
+    ));
+    let entry = connection.set.entry(connection.connection)?;
+    assert_eq!(entry.slot.core.snapshot().phase, ConnectionPhase::Closing);
     assert!(
-        engine
-            .drain_events()
+        connection
+            .drain_events()?
             .all(|event| !matches!(event, crate::ConnectionEvent::Closed { .. }))
     );
     Ok(())
@@ -87,20 +97,27 @@ fn pending_connect_clears_cached_completion_readiness() -> Result<(), Box<dyn Er
 }
 
 #[test]
-fn reserve_observing_core_poison_latches_the_engine() -> Result<(), Box<dyn Error>> {
+fn reserve_observing_core_poison_latches_the_connection() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut engine = engine(listener.local_addr()?)?;
-    let epoch = engine.core.epoch();
-    let port = engine.port();
-    let _fault = engine.core.recover();
+    let mut connection = connection(listener.local_addr()?)?;
+    let port = connection.port();
+    let _fault = connection
+        .set
+        .entry_mut(connection.connection)?
+        .slot
+        .core
+        .recover();
 
     assert!(matches!(
-        engine.reserve(Moment::ORIGIN, options()),
+        connection.reserve(Moment::ORIGIN, options()),
         Err(ReserveError::OwnerPoisoned)
     ));
-    assert_eq!(engine.snapshot().owner_failure, Some(OwnerFailure::Core));
-    assert!(port.close(epoch).is_err());
-    let report = engine
+    assert_eq!(
+        connection.snapshot()?.owner_failure,
+        Some(OwnerFailure::Core)
+    );
+    port.close()?;
+    let report = connection
         .try_recover()
         .map_err(|_| std::io::Error::other("poisoned owner rejected recovery"))?;
     assert_eq!(report.reason, OwnerFailure::Core);
@@ -108,18 +125,20 @@ fn reserve_observing_core_poison_latches_the_engine() -> Result<(), Box<dyn Erro
 }
 
 #[test]
-fn commit_observing_core_poison_returns_affine_ownership_and_latches() -> Result<(), Box<dyn Error>>
-{
+fn commit_observing_core_poison_returns_affine_ownership() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut engine = engine(listener.local_addr()?)?;
-    let epoch = engine.core.epoch();
-    let port = engine.port();
-    let permit = engine.reserve(Moment::ORIGIN, options())?;
+    let mut connection = connection(listener.local_addr()?)?;
+    let permit = connection.reserve(Moment::ORIGIN, options())?;
     let operation = permit.operation_id();
     let frame = OutboundFrame::copy_from_slice(&[7])?;
-    let _fault = engine.core.recover();
+    let _fault = connection
+        .set
+        .entry_mut(connection.connection)?
+        .slot
+        .core
+        .recover();
 
-    let Err(error) = engine.commit(permit, frame) else {
+    let Err(error) = connection.commit(permit, frame) else {
         return Err(std::io::Error::other("poisoned core accepted a frame").into());
     };
     let (permit, frame) = match error {
@@ -135,11 +154,13 @@ fn commit_observing_core_poison_returns_affine_ownership_and_latches() -> Result
     };
     assert_eq!(permit.operation_id(), operation);
     assert_eq!(frame.as_bytes(), &[7]);
-    assert_eq!(engine.snapshot().owner_failure, Some(OwnerFailure::Core));
-    assert!(port.close(epoch).is_err());
+    assert_eq!(
+        connection.snapshot()?.owner_failure,
+        Some(OwnerFailure::Core)
+    );
     drop(permit);
 
-    let report = engine
+    let report = connection
         .try_recover()
         .map_err(|_| std::io::Error::other("poisoned owner rejected recovery"))?;
     assert_eq!(report.reason, OwnerFailure::Core);
@@ -149,21 +170,21 @@ fn commit_observing_core_poison_returns_affine_ownership_and_latches() -> Result
 #[test]
 fn outcome_capacity_rejection_rolls_back_the_new_core_permit() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut engine = engine(listener.local_addr()?)?;
-    let permit = engine.reserve(Moment::ORIGIN, options())?;
-    let operation = engine.commit(permit, OutboundFrame::copy_from_slice(&[7])?)?;
-    engine.cancel(operation)?;
+    let mut connection = connection(listener.local_addr()?)?;
+    let permit = connection.reserve(Moment::ORIGIN, options())?;
+    let operation = connection.commit(permit, OutboundFrame::copy_from_slice(&[7])?)?;
+    connection.cancel(operation)?;
 
-    let retained = engine.reserve(Moment::ORIGIN, options())?;
+    let retained = connection.reserve(Moment::ORIGIN, options())?;
     assert!(matches!(
-        engine.reserve(Moment::ORIGIN, options()),
+        connection.reserve(Moment::ORIGIN, options()),
         Err(ReserveError::OperationCapacity)
     ));
-    let snapshot = engine.core.snapshot();
+    let snapshot = connection.snapshot()?.connection;
     assert_eq!(snapshot.reserved_permits, 1);
     assert_eq!(snapshot.owned_operations, 1);
     drop(retained);
-    let snapshot = engine.core.snapshot();
+    let snapshot = connection.snapshot()?.connection;
     assert_eq!(snapshot.reserved_permits, 0);
     assert_eq!(snapshot.owned_operations, 0);
     Ok(())
@@ -173,13 +194,13 @@ fn options() -> OperationOptions {
     OperationOptions::until(Deadline::at(Moment::from_nanos(20)))
         .session()
         .retained_bytes(RetainedBytes::new(1))
-        .write_bytes(RetainedBytes::new(1))
+        .write_retained_bytes(RetainedBytes::new(1))
 }
 
-fn engine(
+fn connection(
     address: std::net::SocketAddr,
-) -> Result<ConnectionEngine<Decoder, Classifier>, Box<dyn Error>> {
-    let connection = ConnectionLimits::new(
+) -> Result<StandaloneConnection<Decoder, Classifier>, Box<dyn Error>> {
+    let core = ConnectionLimits::new(
         2,
         RetainedBytes::new(16),
         2,
@@ -188,22 +209,26 @@ fn engine(
     )?;
     let two = NonZeroUsize::new(2)
         .ok_or_else(|| std::io::Error::other("fixture limit must be nonzero"))?;
-    let limits = EngineLimits::new(
-        connection,
+    let limits = ConnectionSlotLimits::new(
+        core,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
-        TurnLimits::new(two, two, two, two),
+        IoLimits::new(two, two),
         PublicationLimits::new(two),
     )?;
-    Ok(ConnectionEngine::connect(
-        EngineConfig {
-            endpoint: EndpointId::new(1),
-            lane: LaneId::new(2),
-            connection: ConnectionId::new(3),
-            epoch: ConnectionEpoch::new(4),
-            address,
-            resource_owner: ResourceOwnerId::new(5),
-            timer_owner: TimerOwnerId::new(6),
-        },
+    let identity = ConnectionIdentity::new(
+        EndpointId::new(1),
+        LaneId::new(2),
+        ConnectionId::new(3),
+        ConnectionEpoch::new(4),
+    );
+    let exact = ConnectionConfig::new(
+        identity,
+        address,
+        Deadline::at(Moment::from_nanos(u64::MAX)),
+        TimerOwnerId::new(6),
+    );
+    Ok(StandaloneConnection::connect(
+        StandaloneConnectionConfig::new(ConnectionSetConfig::new(ResourceOwnerId::new(5)), exact),
         limits,
         Decoder,
         Classifier,

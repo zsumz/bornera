@@ -7,8 +7,9 @@ use std::{
 
 use calandria::{Interest, Readiness};
 use mio::{Registry, Token, event::Source, net::TcpStream};
+use socket2::{SockRef, TcpKeepalive};
 
-use crate::TransportState;
+use crate::{ConnectProgress, SlotTransport, TcpNoDelay, TcpSocketPolicy};
 
 #[derive(Debug)]
 pub(crate) struct PlaintextTransport {
@@ -51,6 +52,16 @@ impl PlaintextTransport {
             }
             Err(source) => Err(source),
         }
+    }
+
+    pub(crate) fn apply_policy(&self, policy: TcpSocketPolicy) -> io::Result<()> {
+        self.stream
+            .set_nodelay(policy.no_delay() == TcpNoDelay::Enabled)?;
+        if let Some(keepalive) = policy.keepalive_policy() {
+            let settings = TcpKeepalive::new().with_time(keepalive.idle().as_duration());
+            SockRef::from(&self.stream).set_tcp_keepalive(&settings)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn can_finish_connect(&self) -> bool {
@@ -125,13 +136,6 @@ impl PlaintextTransport {
     pub(crate) fn set_interest(&mut self, interest: Interest) {
         self.interest = interest;
     }
-
-    pub(crate) const fn state(&self) -> TransportState {
-        match self.phase {
-            TransportPhase::Connecting => TransportState::Connecting,
-            TransportPhase::Open => TransportState::Open,
-        }
-    }
 }
 
 impl Read for PlaintextTransport {
@@ -147,6 +151,44 @@ impl Write for PlaintextTransport {
 
     fn flush(&mut self) -> io::Result<()> {
         self.stream.flush()
+    }
+}
+
+impl SlotTransport for PlaintextTransport {
+    fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
+        Self::finish_connect(self)
+    }
+
+    fn apply_policy(&mut self, policy: TcpSocketPolicy) -> io::Result<()> {
+        Self::apply_policy(self, policy)
+    }
+
+    fn can_finish_connect(&self) -> bool {
+        Self::can_finish_connect(self)
+    }
+
+    fn is_open(&self) -> bool {
+        Self::is_open(self)
+    }
+
+    fn can_read(&self) -> bool {
+        Self::can_read(self)
+    }
+
+    fn can_write(&self) -> bool {
+        Self::can_write(self)
+    }
+
+    fn desired_interest(&self, has_writes: bool) -> Interest {
+        Self::desired_interest(self, has_writes)
+    }
+
+    fn clear_read(&mut self) {
+        Self::clear_read(self);
+    }
+
+    fn clear_write(&mut self) {
+        Self::clear_write(self);
     }
 }
 
@@ -172,13 +214,6 @@ impl Source for PlaintextTransport {
     fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
         self.stream.deregister(registry)
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ConnectProgress {
-    Pending,
-    Opened,
-    AlreadyOpen,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

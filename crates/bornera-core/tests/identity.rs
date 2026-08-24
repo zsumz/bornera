@@ -44,7 +44,7 @@ fn generated_identities_exhaust_without_alias() -> Result<(), Box<dyn Error>> {
         Moment::ORIGIN,
         OperationOptions::until(Deadline::at(Moment::from_nanos(1)))
             .session()
-            .write_bytes(RetainedBytes::new(1)),
+            .write_retained_bytes(RetainedBytes::new(1)),
     )?;
     assert_eq!(permit.operation_id(), OperationId::new(u64::MAX));
     drop(permit);
@@ -54,7 +54,7 @@ fn generated_identities_exhaust_without_alias() -> Result<(), Box<dyn Error>> {
             Moment::ORIGIN,
             OperationOptions::until(Deadline::at(Moment::from_nanos(1)))
                 .session()
-                .write_bytes(RetainedBytes::new(1)),
+                .write_retained_bytes(RetainedBytes::new(1)),
         )
         .err();
     assert_eq!(error, Some(ReserveError::IdentityExhausted));

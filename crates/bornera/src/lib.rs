@@ -3,14 +3,13 @@
 //! This crate privately owns native plaintext TCP capabilities while Calandria
 //! supplies time, readiness, timers, resources, wakes, and hosting. Protocol
 //! crates retain codecs, session meaning, routing, retry, and public APIs.
-
 mod admission;
 mod classifier;
 mod command;
 mod config;
+mod connection_error;
 mod control;
 mod drive;
-mod engine;
 mod error;
 mod event;
 mod failure;
@@ -20,31 +19,62 @@ mod lifecycle;
 mod outcome;
 mod port;
 mod recovery;
+mod set;
+mod set_access;
+mod set_connect;
+mod set_drive;
+mod set_failure;
+#[cfg(test)]
+mod set_failure_test;
+mod set_recovery;
+mod set_settle;
+#[cfg(test)]
+mod set_settlement_test;
+mod slot;
+mod slot_close;
 mod snapshot;
+mod socket;
+mod standalone;
 mod state;
+mod token;
 mod transition;
 #[cfg(test)]
 mod transition_test;
 mod transport;
+mod transport_port;
 mod waiter;
 
+pub use bornera_core::{CompletionMode, FrameDecoder, OperationOptions};
 pub use classifier::InboundClassifier;
-pub use command::EngineCommand;
+pub use command::ConnectionCommand;
 pub use config::{
-    DecoderLimits, EngineConfig, EngineLimits, EngineLimitsError, PublicationLimits, TurnLimits,
+    ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSetLimits,
+    ConnectionSlotConfig, ConnectionSlotLimits, ConnectionSlotLimitsError, DecoderLimits, IoLimits,
+    PublicationLimits, StandaloneConnectionConfig,
 };
-pub use engine::ConnectionEngine;
+pub use connection_error::{
+    ConnectionAccessError, ConnectionCommitError, ConnectionRecoveryError, ConnectionReserveError,
+    ConnectionRetireError,
+};
+pub use drive::SlotProgress;
 pub use error::{ConnectError, EngineCommitError, EngineError, EngineInvariant};
 pub use event::ConnectionEvent;
 pub use frame::{OutboundFrame, OutboundFrameError};
 pub use outcome::EngineOutcome;
-pub use port::EnginePort;
+pub use port::ConnectionPort;
 pub use recovery::{OwnerFailure, RecoveryReport, RecoveryWhileRunning};
-pub use snapshot::{EngineSnapshot, TransportState};
-pub use waiter::ConnectionWaiter;
-
-pub use bornera_core::{FrameDecoder, OperationOptions};
-
-pub(crate) use engine::{DeadlineEntry, DeadlineEvent, IoPreference, to_u64};
+pub(crate) use set::ConnectionEntry;
+pub use set::ConnectionSet;
+pub use slot::ConnectionSlot;
+pub(crate) use slot::{CloseDirective, DeadlineEntry, DeadlineEvent, IoPreference, to_u64};
+pub use snapshot::{
+    ConnectionSetSnapshot, ConnectionSlotSnapshot, TransportDiagnostic, TransportFailurePhase,
+    TransportState,
+};
+pub use socket::{SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy};
+pub use standalone::StandaloneConnection;
 pub(crate) use state::EngineState;
-pub(crate) use transport::{ConnectProgress, PlaintextTransport};
+pub use token::ConnectionToken;
+pub(crate) use transport::PlaintextTransport;
+pub use transport_port::{ConnectProgress, SlotTransport};
+pub use waiter::ConnectionWaiter;

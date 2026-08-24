@@ -1,10 +1,18 @@
 //! Fatal production errors permanently fence normal owner mutation.
 
-use std::{error::Error, fmt, net::TcpListener, num::NonZeroUsize, sync::mpsc, thread};
+use std::{
+    error::Error,
+    fmt,
+    net::{Shutdown, TcpListener},
+    num::NonZeroUsize,
+    sync::mpsc,
+    thread,
+};
 
 use bornera::{
-    ConnectionEngine, DecoderLimits, EngineCommitError, EngineConfig, EngineError, EngineInvariant,
-    EngineLimits, InboundClassifier, OutboundFrame, OwnerFailure, PublicationLimits, TurnLimits,
+    ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
+    EngineCommitError, EngineError, EngineInvariant, InboundClassifier, IoLimits, OutboundFrame,
+    OwnerFailure, PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
@@ -26,8 +34,7 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
     let lifecycle = NonZeroUsize::new(2)
         .ok_or_else(|| std::io::Error::other("lifecycle capacity must be nonzero"))?;
     let (config, limits) = engine_parts(address, lifecycle)?;
-    let epoch = config.epoch;
-    let mut engine = ConnectionEngine::connect(config, limits, Decoder, Classifier)?;
+    let mut engine = StandaloneConnection::connect(config, limits, Decoder, Classifier)?;
     run_until_open(&mut engine)?;
     engine.open_admission()?;
     let port = engine.port();
@@ -44,7 +51,7 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
         EngineError::Invariant(EngineInvariant::LifecyclePublication(_))
     ));
     assert_eq!(
-        engine.snapshot().owner_failure,
+        engine.snapshot()?.owner_failure,
         Some(OwnerFailure::OwnerInvariant)
     );
     assert!(matches!(
@@ -76,7 +83,7 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
     assert_owner_failed(&engine.finalize(CloseReason::Requested))?;
     assert_owner_failed(&engine.poll_io(Span::ZERO))?;
     assert_owner_failed(&engine.turn_component(Moment::ORIGIN))?;
-    assert!(port.close(epoch).is_err());
+    port.close()?;
 
     let report = engine
         .try_recover()
@@ -88,11 +95,49 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
     Ok(())
 }
 
+#[test]
+fn fatal_failure_during_a_turn_cannot_look_like_clean_stop() -> Result<(), Box<dyn Error>> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let address = listener.local_addr()?;
+    let server = thread::spawn(move || -> std::io::Result<()> {
+        let (stream, _) = listener.accept()?;
+        stream.shutdown(Shutdown::Both)
+    });
+    let (config, limits) = engine_parts(address, NonZeroUsize::MIN)?;
+    let mut engine = StandaloneConnection::connect(config, limits, Decoder, Classifier)?;
+    let mut observed_failure = false;
+    for _ in 0..128 {
+        match engine.turn_component(Moment::ORIGIN) {
+            Err(EngineError::OwnerFailed(OwnerFailure::OwnerInvariant)) => {
+                observed_failure = true;
+                break;
+            }
+            Err(error) => return Err(error.into()),
+            Ok(turn) if turn.next() != Next::Now => {
+                engine.poll_io(Span::from_nanos(10_000_000))?;
+            }
+            Ok(_) => {}
+        }
+    }
+    assert!(observed_failure);
+    assert_eq!(
+        engine.snapshot()?.owner_failure,
+        Some(OwnerFailure::OwnerInvariant)
+    );
+    let report = engine
+        .try_recover()
+        .map_err(|_| std::io::Error::other("turn failure rejected recovery"))?;
+    assert_eq!(report.reason, OwnerFailure::OwnerInvariant);
+    assert_eq!(report.events.len(), 3);
+    join(server)?;
+    Ok(())
+}
+
 fn options() -> OperationOptions {
     OperationOptions::until(Deadline::at(Moment::from_nanos(u64::MAX)))
         .session()
         .retained_bytes(RetainedBytes::new(1))
-        .write_bytes(RetainedBytes::new(1))
+        .write_retained_bytes(RetainedBytes::new(1))
 }
 
 fn assert_owner_failed<T>(result: &Result<T, EngineError>) -> Result<(), Box<dyn Error>> {
@@ -109,7 +154,7 @@ fn assert_owner_failed<T>(result: &Result<T, EngineError>) -> Result<(), Box<dyn
 fn run_until_open(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
     for _ in 0..128 {
         let turn = engine.turn_component(Moment::ORIGIN)?;
-        if engine.is_transport_open() {
+        if engine.is_transport_open()? {
             return Ok(());
         }
         if turn.next() != Next::Now {
@@ -119,7 +164,7 @@ fn run_until_open(engine: &mut TestEngine) -> Result<(), Box<dyn Error>> {
     Err(std::io::Error::other("transport did not open within bounded turns").into())
 }
 
-type TestEngine = ConnectionEngine<Decoder, Classifier>;
+type TestEngine = StandaloneConnection<Decoder, Classifier>;
 
 #[derive(Debug)]
 struct Decoder;
@@ -175,7 +220,7 @@ impl Error for DecodeError {}
 fn engine_parts(
     address: std::net::SocketAddr,
     lifecycle: NonZeroUsize,
-) -> Result<(EngineConfig, EngineLimits), Box<dyn Error>> {
+) -> Result<(StandaloneConnectionConfig, ConnectionSlotLimits), Box<dyn Error>> {
     let connection = ConnectionLimits::new(
         4,
         RetainedBytes::new(64),
@@ -185,22 +230,29 @@ fn engine_parts(
     )?;
     let four = NonZeroUsize::new(4)
         .ok_or_else(|| std::io::Error::other("fixture limit must be nonzero"))?;
-    let limits = EngineLimits::new(
+    let limits = ConnectionSlotLimits::new(
         connection,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
-        TurnLimits::new(four, four, four, four),
+        IoLimits::new(four, four),
         PublicationLimits::new(lifecycle),
     )?;
+    let identity = ConnectionIdentity::new(
+        EndpointId::new(1),
+        LaneId::new(2),
+        ConnectionId::new(3),
+        ConnectionEpoch::new(4),
+    );
+    let connection = ConnectionConfig::new(
+        identity,
+        address,
+        Deadline::at(Moment::from_nanos(u64::MAX)),
+        TimerOwnerId::new(6),
+    );
     Ok((
-        EngineConfig {
-            endpoint: EndpointId::new(1),
-            lane: LaneId::new(2),
-            connection: ConnectionId::new(3),
-            epoch: ConnectionEpoch::new(4),
-            address,
-            resource_owner: ResourceOwnerId::new(5),
-            timer_owner: TimerOwnerId::new(6),
-        },
+        StandaloneConnectionConfig::new(
+            ConnectionSetConfig::new(ResourceOwnerId::new(5)),
+            connection,
+        ),
         limits,
     ))
 }

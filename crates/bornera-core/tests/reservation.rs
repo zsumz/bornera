@@ -21,7 +21,7 @@ fn limits(
     operations: usize,
     retained: u64,
     writes: usize,
-    write_bytes: u64,
+    write_retained_bytes: u64,
     first_key: u32,
     last_key: u32,
 ) -> Result<ConnectionLimits, Box<dyn Error>> {
@@ -29,7 +29,7 @@ fn limits(
         operations,
         RetainedBytes::new(retained),
         writes,
-        RetainedBytes::new(write_bytes),
+        RetainedBytes::new(write_retained_bytes),
         MatchKeySpace::new(first_key, last_key)?,
     )?)
 }
@@ -47,7 +47,7 @@ fn machine(limits: ConnectionLimits, epoch: u64) -> ConnectionCore<TestFrame> {
 fn options(retained: u64, write: u64) -> OperationOptions {
     OperationOptions::until(Deadline::at(Moment::from_nanos(10)))
         .retained_bytes(RetainedBytes::new(retained))
-        .write_bytes(RetainedBytes::new(write))
+        .write_retained_bytes(RetainedBytes::new(write))
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn dropping_a_permit_atomically_restores_all_capacity() -> Result<(), Box<dyn Er
     assert_eq!(owned.owned_operations, 1);
     assert_eq!(owned.reserved_permits, 1);
     assert_eq!(owned.retained_bytes, RetainedBytes::new(7));
-    assert_eq!(owned.buffered_write_bytes, RetainedBytes::new(9));
+    assert_eq!(owned.buffered_write_retained_bytes, RetainedBytes::new(9));
 
     drop(permit);
     let released = machine.snapshot();
@@ -90,7 +90,7 @@ fn dropping_a_permit_atomically_restores_all_capacity() -> Result<(), Box<dyn Er
     assert_eq!(released.reserved_permits, 0);
     assert_eq!(released.active_match_keys, 0);
     assert_eq!(released.retained_bytes, RetainedBytes::ZERO);
-    assert_eq!(released.buffered_write_bytes, RetainedBytes::ZERO);
+    assert_eq!(released.buffered_write_retained_bytes, RetainedBytes::ZERO);
 
     let replacement = machine.reserve(Moment::ORIGIN, options(7, 9).session())?;
     assert_eq!(replacement.match_key(), MatchKey::new(17));
@@ -138,7 +138,7 @@ fn commit_shrinks_write_reservation_to_exact_frame_bytes() -> Result<(), Box<dyn
     let (operation, transition) = machine.commit(permit, frame(6))?;
     assert_eq!(machine.snapshot().reserved_permits, 0);
     assert_eq!(
-        machine.snapshot().buffered_write_bytes,
+        machine.snapshot().buffered_write_retained_bytes,
         RetainedBytes::new(6)
     );
     assert_eq!(transition.effects().len(), 1);
@@ -210,7 +210,7 @@ fn atomic_commit_transfers_the_frame_without_an_enqueue_effect() -> Result<(), B
     assert_eq!(operation.get(), 0);
     assert_eq!(machine.queued_write_frames(), 1);
     assert_eq!(
-        machine.snapshot().buffered_write_bytes,
+        machine.snapshot().buffered_write_retained_bytes,
         RetainedBytes::new(3)
     );
     assert!(matches!(
