@@ -41,7 +41,6 @@ mod transition;
 #[cfg(test)]
 mod transition_test;
 mod transport;
-mod transport_port;
 mod waiter;
 
 pub use bornera_core::{CompletionMode, FrameDecoder, OperationOptions};
@@ -75,6 +74,7 @@ pub use socket::{SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPol
 pub use standalone::StandaloneConnection;
 pub(crate) use state::EngineState;
 pub use token::ConnectionToken;
-pub use transport::TcpTransport;
-pub use transport_port::{ConnectProgress, RegisteredTransport, SlotTransport, TransportConnector};
+pub use transport::{
+    ConnectProgress, RegisteredTransport, SlotTransport, TcpTransport, TransportConnector,
+};
 pub use waiter::ConnectionWaiter;
