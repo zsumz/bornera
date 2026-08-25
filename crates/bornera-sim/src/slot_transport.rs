@@ -6,7 +6,9 @@ use bornera::{
     SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
     TransportLimits, TransportPressure, TransportProgress,
 };
-use calandria::{Interest, RetainedBytes};
+use calandria::Interest;
+
+use crate::{Phase, ShutdownState, transport_pressure};
 
 #[derive(Debug)]
 pub(crate) struct SimTransport {
@@ -18,6 +20,7 @@ pub(crate) struct SimTransport {
     outbound: Vec<u8>,
     limits: TransportLimits,
     applied_policy: Option<TcpSocketPolicy>,
+    shutdown: ShutdownState,
 }
 
 impl SimTransport {
@@ -29,7 +32,7 @@ impl SimTransport {
         inbound.try_reserve_exact(inbound_limit).map_err(|_| ())?;
         let mut outbound = Vec::new();
         outbound.try_reserve_exact(outbound_limit).map_err(|_| ())?;
-        let pressure = pressure(&inbound, &outbound);
+        let pressure = transport_pressure(&inbound, &outbound);
         if pressure.total() > limits.retained_bytes() {
             return Err(());
         }
@@ -42,6 +45,7 @@ impl SimTransport {
             outbound,
             limits: TransportLimits::new(pressure.total()),
             applied_policy: None,
+            shutdown: ShutdownState::NotStarted,
         })
     }
 
@@ -70,6 +74,7 @@ impl SimTransport {
         self.connect_ready = false;
         self.inbound.clear();
         self.write_credit = 0;
+        self.shutdown = ShutdownState::Complete;
     }
 
     pub(crate) fn outbound(&self) -> &[u8] {
@@ -160,13 +165,18 @@ impl SlotTransport for SimTransport {
         &mut self,
         _budget: TransportBudget,
     ) -> Result<TransportProgress, TransportError> {
-        Ok(TransportProgress::IDLE)
+        if self.shutdown != ShutdownState::Flushing {
+            return Ok(TransportProgress::IDLE);
+        }
+        self.shutdown = ShutdownState::Complete;
+        Ok(TransportProgress::new(core::num::NonZeroUsize::MIN, 0, 1))
     }
 
     fn begin_shutdown(
         &mut self,
         _budget: TransportBudget,
     ) -> Result<TransportProgress, TransportError> {
+        self.shutdown = ShutdownState::Flushing;
         Ok(TransportProgress::operation())
     }
 
@@ -175,11 +185,11 @@ impl SlotTransport for SimTransport {
     }
 
     fn has_transport_work(&self) -> bool {
-        false
+        self.shutdown == ShutdownState::Flushing
     }
 
     fn is_shutdown_complete(&self) -> bool {
-        true
+        self.shutdown == ShutdownState::Complete
     }
 
     fn is_open(&self) -> bool {
@@ -187,15 +197,21 @@ impl SlotTransport for SimTransport {
     }
 
     fn can_read(&self) -> bool {
-        self.phase == Phase::Open && (!self.inbound.is_empty() || self.peer_closed)
+        self.phase == Phase::Open
+            && self.shutdown == ShutdownState::NotStarted
+            && (!self.inbound.is_empty() || self.peer_closed)
     }
 
     fn can_write(&self) -> bool {
-        self.phase == Phase::Open && self.write_credit != 0
+        self.phase == Phase::Open
+            && self.shutdown == ShutdownState::NotStarted
+            && self.write_credit != 0
     }
 
     fn desired_interest(&self, has_writes: bool) -> Interest {
-        if self.phase == Phase::Connecting || has_writes {
+        if self.shutdown == ShutdownState::Flushing {
+            Interest::WRITABLE
+        } else if self.phase == Phase::Connecting || has_writes {
             Interest::READ_WRITE
         } else {
             Interest::READABLE
@@ -203,7 +219,7 @@ impl SlotTransport for SimTransport {
     }
 
     fn pressure(&self) -> TransportPressure {
-        pressure(&self.inbound, &self.outbound)
+        transport_pressure(&self.inbound, &self.outbound)
     }
 
     fn pressure_limit(&self) -> TransportLimits {
@@ -215,20 +231,4 @@ impl SlotTransport for SimTransport {
     fn clear_write(&mut self) {
         self.write_credit = 0;
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Phase {
-    Connecting,
-    Open,
-    Closed,
-}
-
-fn pressure(inbound: &VecDeque<u8>, outbound: &Vec<u8>) -> TransportPressure {
-    let inbound =
-        RetainedBytes::try_from(inbound.capacity()).unwrap_or(RetainedBytes::new(u64::MAX));
-    let outbound =
-        RetainedBytes::try_from(outbound.capacity()).unwrap_or(RetainedBytes::new(u64::MAX));
-    TransportPressure::new(inbound, outbound, RetainedBytes::ZERO, RetainedBytes::ZERO)
-        .unwrap_or(TransportPressure::MAX)
 }

@@ -13,9 +13,9 @@ use calandria::{Interest, Readiness, ResourceOwnerId, Retained, Span, WaitOutcom
 use mio::{Registry, Token, event::Source};
 
 use crate::{
-    ConnectionSet, ConnectionSetConfig, InboundClassifier, RegisteredTransport, SlotTransport,
-    TcpSocketPolicy, TcpTransport, TransportBudget, TransportConnector, TransportError,
-    TransportPressure, TransportProgress,
+    ConnectionPulseHandle, ConnectionSet, ConnectionSetConfig, InboundClassifier,
+    RegisteredTransport, SlotTransport, TcpSocketPolicy, TcpTransport, TransportBudget,
+    TransportConnector, TransportError, TransportPressure, TransportProgress,
 };
 
 #[path = "set_connect_test/config.rs"]
@@ -72,12 +72,19 @@ fn custom_transport_registers_its_initial_interest() -> Result<(), Box<dyn Error
 }
 
 #[test]
-fn pulse_handle_notifies_the_owned_selector() -> Result<(), Box<dyn Error>> {
+fn independent_pulse_domains_cannot_strand_selector_work() -> Result<(), Box<dyn Error>> {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    assert_send_sync::<ConnectionPulseHandle>();
     let mut set: ConnectionSet<Decoder, Classifier> = ConnectionSet::new(
         ConnectionSetConfig::new(ResourceOwnerId::new(82)),
         set_limits(),
     )?;
-    set.pulse_handle().pulse()?;
+    let first = set.pulse_handle();
+    let second = first.clone();
+    second.pulse()?;
+    assert_eq!(set.poll_io(Span::ZERO)?, WaitOutcome::Notified);
+    first.pulse()?;
     assert_eq!(set.poll_io(Span::ZERO)?, WaitOutcome::Notified);
     Ok(())
 }

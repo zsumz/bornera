@@ -86,6 +86,19 @@ fn exact_replay_exercises_production_decode_deadline_and_publication_owners()
         events.last(),
         Some(ConnectionEvent::Closed { .. })
     ));
+    let shutdown = first.observations().iter().find(|observation| {
+        matches!(
+            observation.kind,
+            SlotObservationKind::Action {
+                result: SlotActionResult::Drain(_),
+                ..
+            }
+        )
+    });
+    assert!(matches!(
+        shutdown.and_then(|observation| observation.progress),
+        Some(progress) if progress.work() == 2
+    ));
     Ok(())
 }
 #[test]
