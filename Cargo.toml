@@ -2,12 +2,13 @@
 members = [
   "crates/bornera-core",
   "crates/bornera",
+  "crates/bornera-rustls",
   "crates/bornera-sim",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.0.1-rc.2"
+version = "0.0.1-rc.3"
 edition = "2024"
 rust-version = "1.88"
 authors = ["zsumz <shawn@zsumz.com>"]
@@ -21,9 +22,11 @@ bytes = "1.11.1"
 calandria = { version = "=0.0.1-rc.2", default-features = false }
 calandria-mio = { version = "=0.0.1-rc.2" }
 calandria-sim = { version = "=0.0.1-rc.2" }
-bornera-core = { version = "=0.0.1-rc.2", path = "crates/bornera-core" }
-bornera = { version = "=0.0.1-rc.2", path = "crates/bornera" }
+bornera-core = { version = "=0.0.1-rc.3", path = "crates/bornera-core" }
+bornera = { version = "=0.0.1-rc.3", path = "crates/bornera" }
 mio = { version = "1.2.2", default-features = false, features = ["net"] }
+rcgen = { version = "=0.14.8", default-features = false, features = ["ring"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 socket2 = "0.6.5"
 
 [workspace.lints.rust]

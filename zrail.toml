@@ -2,7 +2,12 @@ schema = 1
 adapters = ["rust"]
 
 [repository]
-roots = ["crates/bornera", "crates/bornera-core", "crates/bornera-sim"]
+roots = [
+  "crates/bornera",
+  "crates/bornera-core",
+  "crates/bornera-rustls",
+  "crates/bornera-sim",
+]
 exclude = []
 workspace_members = "exact"
 nested_git = "deny"
@@ -45,6 +50,22 @@ reason = "The published Mio package exposes the mio library root used for privat
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "1.2.2"
+
+[[dependencies.crate_root]]
+package = "rcgen"
+root = "rcgen"
+reason = "The published rcgen package provides ephemeral TLS identities for loopback qualification."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.14.8"
+
+[[dependencies.crate_root]]
+package = "rustls"
+root = "rustls"
+reason = "The published rustls package provides the bounded generic TLS client transport."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.23.43"
 
 [[dependencies.crate_root]]
 package = "socket2"
@@ -156,10 +177,19 @@ reason = "Deterministic replay drives the production selector-free connection sl
 [layer.dependencies]
 external = "locked"
 
+[[layer]]
+name = "tls-adapter"
+packages = ["bornera-rustls"]
+may_depend_on = ["core", "production"]
+reason = "The optional TLS adapter implements bounded transport mechanics over the production owner."
+
+[layer.dependencies]
+external = "locked"
+
 [[dependency]]
 name = "core-does-not-depend-outward"
 from = "bornera-core"
-deny = ["bornera", "bornera-sim"]
+deny = ["bornera", "bornera-rustls", "bornera-sim"]
 reason = "The deterministic core cannot depend on either adapter package."
 
 [[scope]]

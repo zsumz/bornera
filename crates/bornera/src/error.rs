@@ -14,7 +14,10 @@ mod display;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ConnectError<E> {
-    /// The operating system rejected creation of the nonblocking stream.
+    /// The connector rejected transport construction or the exact nonblocking attempt.
+    ///
+    /// Adapter-specific construction failures may be retained as the inner
+    /// [`io::Error::get_ref`] source.
     Io(io::Error),
     /// The Mio readiness adapter could not be created or registered.
     Mio(MioError),
