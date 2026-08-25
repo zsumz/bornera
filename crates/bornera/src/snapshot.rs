@@ -64,6 +64,8 @@ pub enum TransportFailureKind {
     Truncated,
     /// A configured transport-memory bound was exceeded.
     Capacity,
+    /// A bounded transport phase reached its absolute deadline.
+    TimedOut,
     /// A safe transport implementation violated its public contract.
     Contract,
 }
@@ -110,6 +112,11 @@ impl TransportDiagnostic {
             code: None,
         }
     }
+
+    pub(crate) const fn in_phase(mut self, phase: TransportFailurePhase) -> Self {
+        self.phase = phase;
+        self
+    }
 }
 
 /// Immutable, data-only state for one selector-free connection slot.
@@ -122,6 +129,10 @@ pub struct ConnectionSlotSnapshot {
     pub owner_failure: Option<OwnerFailure>,
     /// Current private transport lifecycle.
     pub transport: TransportState,
+    /// Whether the host may release the capability and confirm physical closure.
+    pub transport_release_ready: bool,
+    /// Absolute bound while ordered drain or transport-local shutdown is pending.
+    pub shutdown_deadline: Option<calandria::Deadline>,
     /// Most recently retained mechanical transport failure.
     pub transport_diagnostic: Option<TransportDiagnostic>,
     /// Last observed transport-memory pressure, or `None` before binding an adapter.

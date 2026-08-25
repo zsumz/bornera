@@ -5,23 +5,22 @@ use std::{
     error::Error,
     io,
     net::SocketAddr,
-    num::NonZeroUsize,
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use bornera_core::{
-    ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId, FrameDecoder, LaneId,
-    MatchKey, MatchKeySpace, Moment, RetainedBytes,
-};
-use calandria::{Interest, Readiness, ResourceOwnerId, Retained, Span, TimerOwnerId, WaitOutcome};
+use bornera_core::{FrameDecoder, MatchKey, RetainedBytes};
+use calandria::{Interest, Readiness, ResourceOwnerId, Retained, Span, WaitOutcome};
 use mio::{Registry, Token, event::Source};
 
 use crate::{
-    ConnectionConfig, ConnectionIdentity, ConnectionSet, ConnectionSetConfig, ConnectionSetLimits,
-    ConnectionSlotLimits, DecoderLimits, InboundClassifier, IoLimits, PublicationLimits,
-    RegisteredTransport, SlotTransport, TcpSocketPolicy, TcpTransport, TransportBudget,
-    TransportConnector, TransportError, TransportLimits, TransportPressure, TransportProgress,
+    ConnectionSet, ConnectionSetConfig, InboundClassifier, RegisteredTransport, SlotTransport,
+    TcpSocketPolicy, TcpTransport, TransportBudget, TransportConnector, TransportError,
+    TransportPressure, TransportProgress,
 };
+
+#[path = "set_connect_test/config.rs"]
+mod config;
+use config::{connection_config, set_limits, slot_limits};
 
 static SOCKET_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
@@ -142,12 +141,23 @@ impl SlotTransport for TestRegisteredTransport {
         Ok(TransportProgress::IDLE)
     }
 
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
     fn can_establish(&self) -> bool {
         !self.open
     }
 
     fn has_transport_work(&self) -> bool {
         false
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {
@@ -247,46 +257,4 @@ impl InboundClassifier<Frame> for Classifier {
     fn reply_key(&mut self, _frame: &Frame) -> Result<MatchKey, Self::Error> {
         Ok(MatchKey::new(0))
     }
-}
-
-fn set_limits() -> ConnectionSetLimits {
-    ConnectionSetLimits::new(
-        NonZeroUsize::MIN,
-        NonZeroUsize::MIN,
-        NonZeroUsize::MIN,
-        NonZeroUsize::MIN,
-        NonZeroUsize::MIN,
-    )
-}
-
-fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
-    let connection = ConnectionLimits::new(
-        1,
-        RetainedBytes::new(8),
-        1,
-        RetainedBytes::new(8),
-        MatchKeySpace::new(0, 0)?,
-    )?;
-    Ok(ConnectionSlotLimits::new(
-        connection,
-        DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
-        IoLimits::new(NonZeroUsize::MIN, NonZeroUsize::MIN),
-        TransportLimits::new(RetainedBytes::ZERO),
-        PublicationLimits::new(NonZeroUsize::MIN),
-    )?)
-}
-
-fn connection_config() -> ConnectionConfig {
-    let identity = ConnectionIdentity::new(
-        EndpointId::new(1),
-        LaneId::new(1),
-        ConnectionId::new(1),
-        ConnectionEpoch::new(1),
-    );
-    ConnectionConfig::new(
-        identity,
-        SocketAddr::from(([127, 0, 0, 1], 1)),
-        Deadline::at(Moment::from_nanos(u64::MAX)),
-        TimerOwnerId::new(81),
-    )
 }

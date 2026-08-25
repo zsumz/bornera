@@ -163,12 +163,23 @@ impl SlotTransport for SimTransport {
         Ok(TransportProgress::IDLE)
     }
 
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
     fn can_establish(&self) -> bool {
         self.phase == Phase::Connecting && self.connect_ready
     }
 
     fn has_transport_work(&self) -> bool {
         false
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {

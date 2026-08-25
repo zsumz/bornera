@@ -66,6 +66,8 @@ pub enum EngineInvariant {
     EventSequenceExhausted,
     /// Closing policy did not retain the mechanical reason required for publication.
     MissingCloseReason,
+    /// An ordered drain reached physical closure without its absolute shutdown bound.
+    MissingShutdownDeadline,
     /// A newer core emitted an effect this production owner cannot interpret.
     UnsupportedCoreEffect,
     /// A safe transport implementation reported more bytes than the supplied read buffer.

@@ -3,7 +3,7 @@
 use core::num::NonZeroUsize;
 
 use bornera::OwnerFailure;
-use bornera_core::{CloseReason, Moment, OperationOptions, RetainedBytes};
+use bornera_core::{CloseReason, Deadline, Moment, OperationOptions, RetainedBytes};
 use calandria::Retained;
 
 use crate::{OperationIndex, SimFrame, SlotTraceAdmissionError, SlotTraceAdmissionFailure};
@@ -40,8 +40,11 @@ pub enum SlotAction {
         /// Trace-local accepted operation.
         operation: OperationIndex,
     },
-    /// Closes admission and begins ordered draining.
-    BeginDrain,
+    /// Closes admission and begins ordered draining through an absolute deadline.
+    BeginDrain {
+        /// Absolute bound for draining plus transport-local graceful shutdown.
+        deadline: Deadline,
+    },
     /// Requests deterministic local closure.
     Close {
         /// Mechanical close reason.
@@ -69,7 +72,7 @@ impl SlotAction {
             | Self::OpenAdmission
             | Self::WriteReady { .. }
             | Self::Cancel { .. }
-            | Self::BeginDrain
+            | Self::BeginDrain { .. }
             | Self::Close { .. }
             | Self::PeerClosed
             | Self::SettleTransport

@@ -4,7 +4,7 @@ use std::error::Error;
 
 use bornera::{ConnectionEvent, OwnerFailure, TcpSocketPolicy, TransportState};
 use bornera_core::{
-    CloseReason, CompletionMode, Delivery, Moment, OperationFailure, OperationOutcome,
+    CloseReason, CompletionMode, Deadline, Delivery, Moment, OperationFailure, OperationOutcome,
 };
 use bornera_sim::{
     OperationIndex, SimFrame, SlotAction, SlotActionResult, SlotObservationKind, SlotSimulator,
@@ -39,7 +39,13 @@ fn exact_replay_exercises_production_decode_deadline_and_publication_owners()
     )?;
     submit(&mut trace, 5, CompletionMode::WriteComplete, 50, &[5, 6])?;
     push(&mut trace, 6, SlotAction::WriteReady { bytes: 2 })?;
-    push(&mut trace, 7, SlotAction::BeginDrain)?;
+    push(
+        &mut trace,
+        7,
+        SlotAction::BeginDrain {
+            deadline: Deadline::at(Moment::from_nanos(20)),
+        },
+    )?;
     push(&mut trace, 8, SlotAction::SettleTransport)?;
 
     let first = simulator.replay(&trace)?;

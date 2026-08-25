@@ -60,8 +60,8 @@ impl ReplayOwner {
                 slot.cancel(accepted.operation)
                     .map_or_else(|error| rejected_owner(&error), SlotActionResult::Cancelled)
             }
-            SlotAction::BeginDrain => slot
-                .begin_drain()
+            SlotAction::BeginDrain { deadline } => slot
+                .begin_drain(deadline)
                 .map_or_else(|error| rejected_owner(&error), SlotActionResult::Drain),
             SlotAction::Close { reason } => slot
                 .finalize(reason)
@@ -71,11 +71,8 @@ impl ReplayOwner {
                 SlotActionResult::PeerClosed
             }
             SlotAction::SettleTransport => {
-                let should_settle = {
-                    let snapshot = slot.snapshot();
-                    snapshot.owner_failure.is_some()
-                        || snapshot.transport == bornera::TransportState::Closing
-                };
+                let should_settle =
+                    slot.snapshot().owner_failure.is_some() || slot.transport_release_ready();
                 let settled = if should_settle {
                     self.transport.close();
                     slot.settle_transport_closed()

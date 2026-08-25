@@ -33,14 +33,20 @@ where
         self.latch(result)
     }
 
-    /// Closes admission and begins ordered draining.
-    pub fn begin_drain(&mut self) -> Result<InputDisposition, EngineError> {
+    /// Closes admission and begins ordered draining through an absolute deadline.
+    ///
+    /// The deadline spans accepted operations and bounded transport-local graceful
+    /// shutdown. Reaching it forces physical release without waiting for a peer.
+    pub fn begin_drain(&mut self, deadline: Deadline) -> Result<InputDisposition, EngineError> {
         self.ensure_running()?;
-        let result = self.begin_drain_inner();
+        let result = self.begin_drain_inner(deadline);
         self.latch(result)
     }
 
-    /// Requests mechanical closure for this exact connection epoch.
+    /// Forces mechanical closure for this exact connection epoch.
+    ///
+    /// This preempts pending transport-local graceful shutdown while retaining the
+    /// close reason already established by core policy.
     pub fn finalize(&mut self, reason: CloseReason) -> Result<InputDisposition, EngineError> {
         self.ensure_running()?;
         let result = self.finalize_inner(reason);
@@ -63,6 +69,13 @@ where
             connection: self.core.snapshot(),
             owner_failure: self.state.failure(),
             transport: self.transport_state,
+            transport_release_ready: self
+                .close_request
+                .is_some_and(crate::CloseDirective::settlement_ready),
+            shutdown_deadline: self
+                .close_request
+                .and_then(crate::CloseDirective::shutdown_deadline)
+                .or(self.drain_deadline),
             transport_diagnostic: self.transport_diagnostic,
             transport_pressure: self.transport_pressure,
             transport_retained_limit: self.transport_retained_limit,
@@ -82,24 +95,28 @@ where
         matches!(self.transport_state, TransportState::Open)
     }
 
+    /// Returns whether the host may release the physical capability and settle closure.
+    pub fn transport_release_ready(&self) -> bool {
+        self.close_request
+            .is_some_and(crate::CloseDirective::settlement_ready)
+    }
+
     pub(crate) const fn is_connecting(&self) -> bool {
         matches!(self.transport_state, TransportState::Connecting)
     }
 
-    /// Returns the earliest connect or operation deadline owned by this slot.
+    /// Returns the earliest connect, operation, drain, or shutdown deadline.
     pub fn next_deadline(&self) -> Option<Deadline> {
-        let operation = self.timers.next_deadline();
-        if self.is_connecting() {
-            Some(operation.map_or(self.connect_deadline, |deadline| {
-                if deadline <= self.connect_deadline {
-                    deadline
-                } else {
-                    self.connect_deadline
-                }
-            }))
-        } else {
-            operation
-        }
+        [
+            self.timers.next_deadline(),
+            self.is_connecting().then_some(self.connect_deadline),
+            self.drain_deadline,
+            self.close_request
+                .and_then(crate::CloseDirective::shutdown_deadline),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     pub(crate) fn record_transport_failure(&mut self, diagnostic: TransportDiagnostic) {
@@ -121,7 +138,7 @@ where
         Ok(outcome)
     }
 
-    fn begin_drain_inner(&mut self) -> Result<InputDisposition, EngineError> {
+    fn begin_drain_inner(&mut self, deadline: Deadline) -> Result<InputDisposition, EngineError> {
         let transition = self
             .core
             .apply(ConnectionInput::BeginDrain {
@@ -129,11 +146,17 @@ where
             })
             .map_err(EngineError::Core)?;
         let disposition = transition.disposition();
+        if disposition == InputDisposition::Applied {
+            self.drain_deadline = Some(deadline);
+        }
         self.interpret_unit(transition)?;
         Ok(disposition)
     }
 
     fn finalize_inner(&mut self, reason: CloseReason) -> Result<InputDisposition, EngineError> {
+        if self.force_shutdown() {
+            return Ok(InputDisposition::Applied);
+        }
         let transition = self
             .core
             .apply(ConnectionInput::CloseRequested {

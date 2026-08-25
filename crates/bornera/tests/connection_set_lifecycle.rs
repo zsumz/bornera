@@ -34,7 +34,7 @@ fn retired_generation_commands_cannot_reach_its_replacement() -> Result<(), Box<
     assert_stale(&set.port(old));
     assert_stale(&set.open_admission(old));
     assert_stale(&set.cancel(old, OperationId::new(99)));
-    assert_stale(&set.begin_drain(old));
+    assert_stale(&set.begin_drain(old, far_deadline()));
     assert_stale(&set.finalize(old, CloseReason::Requested));
     assert_stale(&set.drain_outcomes(old));
     assert_stale(&set.drain_events(old));

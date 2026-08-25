@@ -66,7 +66,7 @@ where
         Ok(Some(progress.operations()))
     }
 
-    fn validate_transport_progress(
+    pub(super) fn validate_transport_progress(
         budget: TransportBudget,
         progress: TransportProgress,
     ) -> Result<(), EngineError> {

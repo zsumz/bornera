@@ -45,18 +45,19 @@ where
     fn drive_quantum_inner<T: SlotTransport + ?Sized>(
         &mut self,
         now: Moment,
-        transport: Option<&mut T>,
+        mut transport: Option<&mut T>,
     ) -> Result<SlotProgress, EngineError> {
         if let Some(transport) = transport.as_deref() {
             self.capture_transport_pressure(transport)?;
         }
         let budget = self.limits.io_operations().get();
-        let mut work = self.drive_deadlines(now, budget)?;
+        let mut work = if self.close_request.is_none() {
+            self.drive_deadlines(now, budget)?
+        } else {
+            0
+        };
         if self.close_request.is_some() {
-            return Ok(SlotProgress {
-                work,
-                saturated: false,
-            });
+            return self.drive_close_quantum(now, transport, budget, work);
         }
         if work == budget {
             let runnable_io = self.decoder_pending
@@ -68,11 +69,39 @@ where
                 saturated: self.has_due_deadline(now) || runnable_io,
             });
         }
-        let io = self.drive_io(transport, budget - work)?;
+        let io = self.drive_io(transport.as_deref_mut(), budget - work)?;
         work = work.saturating_add(io.work);
+        if self.close_request.is_some() {
+            return self.drive_close_quantum(now, transport, budget, work);
+        }
         Ok(SlotProgress {
             work,
             saturated: io.saturated,
+        })
+    }
+
+    fn drive_close_quantum<T: SlotTransport + ?Sized>(
+        &mut self,
+        now: Moment,
+        mut transport: Option<&mut T>,
+        budget: usize,
+        mut work: usize,
+    ) -> Result<SlotProgress, EngineError> {
+        while work < budget {
+            let Some(transport) = transport.as_deref_mut() else {
+                break;
+            };
+            let Some(progressed) = self.drive_shutdown_once(now, transport, budget - work)? else {
+                break;
+            };
+            work = work.saturating_add(progressed);
+        }
+        Ok(SlotProgress {
+            work,
+            saturated: work == budget
+                && transport
+                    .as_deref()
+                    .is_some_and(|transport| self.has_runnable_shutdown(now, transport)),
         })
     }
 

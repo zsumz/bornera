@@ -48,12 +48,23 @@ impl SlotTransport for TcpTransport {
         Ok(TransportProgress::IDLE)
     }
 
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
     fn can_establish(&self) -> bool {
         Self::can_establish(self)
     }
 
     fn has_transport_work(&self) -> bool {
         false
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {

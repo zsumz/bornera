@@ -98,15 +98,16 @@ where
         }
     }
 
-    /// Closes admission and begins ordered draining synchronously.
+    /// Closes admission and drains operations plus transport egress through one deadline.
     pub fn begin_drain(
         &mut self,
         connection: ConnectionToken,
+        deadline: calandria::Deadline,
     ) -> Result<InputDisposition, ConnectionAccessError> {
-        self.apply_and_enqueue(connection, ConnectionPortAction::BeginDrain)
+        self.apply_and_enqueue(connection, ConnectionPortAction::BeginDrain(deadline))
     }
 
-    /// Requests mechanical closure synchronously.
+    /// Forces mechanical closure, preempting any transport-local graceful shutdown.
     pub fn finalize(
         &mut self,
         connection: ConnectionToken,
@@ -190,7 +191,7 @@ where
         let entry = self.entry_mut(connection)?;
         let result = match action {
             ConnectionPortAction::OpenAdmission => entry.slot.open_admission(),
-            ConnectionPortAction::BeginDrain => entry.slot.begin_drain(),
+            ConnectionPortAction::BeginDrain(deadline) => entry.slot.begin_drain(deadline),
         };
         self.enqueue(resource);
         match result {
@@ -209,5 +210,5 @@ where
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectionPortAction {
     OpenAdmission,
-    BeginDrain,
+    BeginDrain(calandria::Deadline),
 }

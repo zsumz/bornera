@@ -60,6 +60,9 @@ where
     C: InboundClassifier<D::Frame>,
     T: RegisteredTransport,
 {
+    if let Some(transport) = entry.transport.as_ref() {
+        entry.slot.observe_shutdown_complete(transport);
+    }
     let Some(directive) = entry.slot.take_close_request() else {
         return Ok(0);
     };

@@ -134,7 +134,6 @@ fn recovery_retains_terminal_outcomes_and_rejected_lifecycle_edges() -> Result<(
             ConnectionEvent::TransportOpened { sequence: 1, .. },
             ConnectionEvent::AdmissionOpened { sequence: 2, .. },
             ConnectionEvent::Closing { sequence: 3, .. },
-            ConnectionEvent::Closed { sequence: 4, .. },
         ]
     ));
     release.send(())?;

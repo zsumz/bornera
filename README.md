@@ -66,6 +66,12 @@ in snapshots and recovery, and fails closed if the configured limit is crossed.
 Shared configuration and operating-system socket buffers remain explicitly
 outside this measure and require bounds from their respective owners.
 
+Ordered draining takes one caller-established absolute deadline spanning both
+accepted operations and bounded transport-local graceful shutdown. Once core
+policy has drained, Bornera progresses the adapter until all retained egress and
+its local close signal leave adapter ownership. Reaching the deadline or calling
+forced finalization releases the physical capability without waiting for a peer.
+
 ## Crates
 
 | Crate | Purpose |

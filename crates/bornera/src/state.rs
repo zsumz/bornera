@@ -50,8 +50,7 @@ where
             return;
         }
         self.state = EngineState::Failed(reason);
-        if self.close_request.is_none() {
-            self.close_request = Some(CloseDirective::Abort);
-        }
+        self.drain_deadline = None;
+        self.close_request = Some(CloseDirective::Abort);
     }
 }

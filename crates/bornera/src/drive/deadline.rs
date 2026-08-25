@@ -3,7 +3,10 @@
 use bornera_core::{CloseReason, ConnectionInput, FrameDecoder};
 use calandria::{Moment, Retained};
 
-use crate::{ConnectionSlot, EngineError, InboundClassifier};
+use crate::{
+    ConnectionSlot, EngineError, InboundClassifier, TransportDiagnostic, TransportFailureKind,
+    TransportFailurePhase,
+};
 
 impl<D, C> ConnectionSlot<D, C>
 where
@@ -19,6 +22,23 @@ where
         let mut work = 0;
         while work < budget {
             let operation = self.timers.next_deadline();
+            let drain_first = self.drain_deadline.is_some_and(|deadline| {
+                deadline.is_elapsed_at(now)
+                    && operation.is_none_or(|operation| deadline <= operation)
+                    && (!self.is_connecting() || deadline <= self.connect_deadline)
+            });
+            if drain_first {
+                self.record_transport_failure(TransportDiagnostic::new(
+                    TransportFailurePhase::Shutdown,
+                    TransportFailureKind::TimedOut,
+                    std::io::ErrorKind::TimedOut,
+                    None,
+                ));
+                self.drain_deadline = None;
+                self.close_for(CloseReason::Requested)?;
+                work += 1;
+                break;
+            }
             let connect_first = self.is_connecting()
                 && self.connect_deadline.is_elapsed_at(now)
                 && operation.is_none_or(|deadline| self.connect_deadline <= deadline);
@@ -54,6 +74,9 @@ where
 
     pub(super) fn has_due_deadline(&self, now: Moment) -> bool {
         (self.is_connecting() && self.connect_deadline.is_elapsed_at(now))
+            || self
+                .drain_deadline
+                .is_some_and(|deadline| deadline.is_elapsed_at(now))
             || self
                 .timers
                 .next_deadline()

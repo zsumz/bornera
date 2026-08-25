@@ -3,7 +3,7 @@
 use std::io;
 
 use bornera_core::OperationId;
-use calandria::{MailboxSender, TrySendError};
+use calandria::{Deadline, MailboxSender, TrySendError};
 
 use crate::{ConnectionCommand, ConnectionToken};
 
@@ -67,14 +67,15 @@ impl ConnectionPort {
         })
     }
 
-    /// Queues admission closure followed by ordered draining.
-    pub fn begin_drain(&self) -> Result<(), TrySendError<ConnectionCommand>> {
+    /// Queues admission closure and operation plus transport draining through one deadline.
+    pub fn begin_drain(&self, deadline: Deadline) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender.try_send_control(ConnectionCommand::BeginDrain {
             connection: self.connection,
+            deadline,
         })
     }
 
-    /// Queues forced mechanical closure of the exact epoch.
+    /// Queues forced mechanical closure, preempting transport-local graceful shutdown.
     pub fn close(&self) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender.try_send_control(ConnectionCommand::Close {
             connection: self.connection,

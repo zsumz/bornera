@@ -58,6 +58,9 @@ impl fmt::Display for EngineInvariant {
             }
             Self::EventSequenceExhausted => "connection event sequence is exhausted",
             Self::MissingCloseReason => "closing connection retained no mechanical reason",
+            Self::MissingShutdownDeadline => {
+                "draining connection retained no graceful-shutdown deadline"
+            }
             Self::UnsupportedCoreEffect => "connection core emitted an unsupported effect",
             Self::TransportReadContract { .. } => {
                 "transport reported a read larger than the supplied buffer"

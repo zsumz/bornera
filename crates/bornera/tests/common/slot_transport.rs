@@ -177,12 +177,23 @@ impl SlotTransport for TestTransport {
         Ok(TransportProgress::IDLE)
     }
 
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
     fn can_establish(&self) -> bool {
         self.connect_readiness != ConnectReadiness::Consumed
     }
 
     fn has_transport_work(&self) -> bool {
         false
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {

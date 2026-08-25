@@ -105,14 +105,17 @@ where
             .map_err(standalone_error)
     }
 
-    /// Begins ordered draining synchronously.
-    pub fn begin_drain(&mut self) -> Result<InputDisposition, EngineError> {
+    /// Drains operations plus transport egress synchronously through one absolute deadline.
+    pub fn begin_drain(
+        &mut self,
+        deadline: calandria::Deadline,
+    ) -> Result<InputDisposition, EngineError> {
         self.set
-            .begin_drain(self.connection)
+            .begin_drain(self.connection, deadline)
             .map_err(standalone_error)
     }
 
-    /// Requests mechanical closure synchronously.
+    /// Forces mechanical closure, preempting any transport-local graceful shutdown.
     pub fn finalize(&mut self, reason: CloseReason) -> Result<InputDisposition, EngineError> {
         self.set
             .finalize(self.connection, reason)

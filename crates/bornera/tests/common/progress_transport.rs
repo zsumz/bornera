@@ -232,12 +232,23 @@ impl SlotTransport for ProgressTransport {
         Ok(self.progress.take().unwrap_or(TransportProgress::IDLE))
     }
 
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
     fn can_establish(&self) -> bool {
         !self.open
     }
 
     fn has_transport_work(&self) -> bool {
         self.progress.is_some()
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {

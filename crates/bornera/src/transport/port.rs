@@ -23,6 +23,9 @@ use crate::{
 ///
 /// Implementations own readiness observations and must clear a readiness class
 /// when its corresponding operation reports [`io::ErrorKind::WouldBlock`].
+/// Authenticated transports must report an unauthenticated raw EOF as
+/// [`crate::TransportFailureKind::Truncated`]; application [`Read::read`] may return
+/// `Ok(0)` only for a clean application-stream end.
 pub trait SlotTransport: Read + Write {
     /// Performs bounded establishment work, including socket policy, toward application readiness.
     ///
@@ -42,10 +45,28 @@ pub trait SlotTransport: Read + Write {
         &mut self,
         budget: TransportBudget,
     ) -> Result<TransportProgress, TransportError>;
+    /// Begins graceful shutdown under the supplied hard work and raw-I/O budget.
+    ///
+    /// A successful call must report nonzero work within `budget`; the owner samples
+    /// pressure afterward. The adapter may stage already-bounded close output and may
+    /// transfer raw bytes within the budget. Subsequent output and input progress
+    /// through [`SlotTransport::drive_transport`].
+    fn begin_shutdown(
+        &mut self,
+        budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError>;
     /// Returns whether establishment can make immediate progress now.
     fn can_establish(&self) -> bool;
     /// Returns whether transport-local work can make immediate progress without a new edge.
     fn has_transport_work(&self) -> bool;
+    /// Returns whether this adapter requires no further graceful-shutdown progression.
+    ///
+    /// After [`SlotTransport::begin_shutdown`], completion must be monotonic and means
+    /// all previously accepted adapter-owned egress plus the local close signal crossed
+    /// into underlying I/O ownership. It does not prove that the peer received or
+    /// acknowledged either. Raw transports with no authenticated close signal may
+    /// return `true` after their no-op begin step.
+    fn is_shutdown_complete(&self) -> bool;
     /// Returns whether complete establishment allows application-byte exchange.
     ///
     /// This must remain `false` until `drive_establishment` has accepted the exact
