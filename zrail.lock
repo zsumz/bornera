@@ -2,7 +2,7 @@
 schema = 1
 semantics = 2
 producer = "0.0.2"
-contract_sha256 = "2f23218f7ac026fcc308e4fb679bcdb2d381859427b20f797771f86421a009b9"
+contract_sha256 = "c4ff2dda0418b84317b1272d4f380897f1f8fd02e83ad7f94ab589f122fbb1e4"
 ratchet = []
 
 [[package]]
@@ -90,6 +90,19 @@ requirement = "0.6.5"
 
 [[package]]
 name = "bornera-core"
+
+[[package.dependency]]
+alias = "bytebudget"
+name = "bytebudget"
+crate_root = "bytebudget"
+kind = "normal"
+scope = "external"
+optional = false
+default_features = true
+
+[package.dependency.source]
+kind = "registry"
+requirement = "=0.0.1-rc.1"
 
 [[package.dependency]]
 alias = "calandria"

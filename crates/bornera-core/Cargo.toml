@@ -18,6 +18,7 @@ publish = ["crates-io"]
 all-features = true
 
 [dependencies]
+bytebudget.workspace = true
 calandria.workspace = true
 
 [[bench]]

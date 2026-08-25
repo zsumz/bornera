@@ -20,6 +20,14 @@ unassigned_packages = "deny"
 cycles = "deny"
 
 [[dependencies.crate_root]]
+package = "bytebudget"
+root = "bytebudget"
+reason = "The published bytebudget package provides exact aggregate accounting for bounded retained storage."
+[dependencies.crate_root.source]
+kind = "registry"
+requirement = "=0.0.1-rc.1"
+
+[[dependencies.crate_root]]
 package = "calandria"
 root = "calandria"
 reason = "The published Calandria package exposes the calandria library root."

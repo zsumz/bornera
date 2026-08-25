@@ -18,6 +18,7 @@ repository = "https://github.com/zsumz/bornera"
 homepage = "https://github.com/zsumz/bornera"
 
 [workspace.dependencies]
+bytebudget = "=0.0.1-rc.1"
 bytes = "1.11.1"
 calandria = { version = "=0.0.1-rc.2", default-features = false }
 calandria-mio = { version = "=0.0.1-rc.2" }

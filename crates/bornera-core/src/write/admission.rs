@@ -23,16 +23,16 @@ impl<F: WriteFrame> WriteQueue<F> {
         if let Some(failure) = self.admission_failure(epoch, operation, effect, incoming) {
             return Err(WriteAdmissionError::new(failure, frame));
         }
-        let Some(retained_bytes) = self.retained_bytes.checked_add(incoming) else {
+        if !self.retained_budget.try_reserve(incoming) {
             return Err(WriteAdmissionError::new(
                 WriteAdmissionFailure::RetainedByteCapacity {
-                    retained: self.retained_bytes,
+                    retained: self.retained_bytes(),
                     incoming,
                     limit: self.limits.max_retained_bytes(),
                 },
                 frame,
             ));
-        };
+        }
         self.frames.push_back(QueuedWrite {
             operation,
             effect,
@@ -41,7 +41,6 @@ impl<F: WriteFrame> WriteQueue<F> {
             written: 0,
             started: false,
         });
-        self.retained_bytes = retained_bytes;
         Ok(())
     }
 
@@ -73,10 +72,9 @@ impl<F: WriteFrame> WriteQueue<F> {
                 limit: self.limits.max_frames(),
             });
         }
-        let accepted = self.retained_bytes.checked_add(incoming);
-        if accepted.is_none_or(|bytes| bytes > self.limits.max_retained_bytes()) {
+        if !self.retained_budget.can_reserve(incoming) {
             return Some(WriteAdmissionFailure::RetainedByteCapacity {
-                retained: self.retained_bytes,
+                retained: self.retained_bytes(),
                 incoming,
                 limit: self.limits.max_retained_bytes(),
             });

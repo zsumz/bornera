@@ -20,6 +20,6 @@ impl<F: WriteFrame> WriteQueue<F> {
             .try_fold(RetainedBytes::ZERO, |retained, frame| {
                 retained.checked_add(frame.measure.retained_bytes())
             });
-        retained == Some(self.retained_bytes)
+        retained == Some(self.retained_bytes())
     }
 }
