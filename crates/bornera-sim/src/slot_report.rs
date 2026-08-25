@@ -59,7 +59,7 @@ pub enum SlotActionResult {
     /// The action was rejected without losing accepted operation ownership.
     Rejected(SlotActionFailure),
     /// All remaining slot ownership transferred and replay stopped.
-    Recovered(RecoveryReport<OutboundFrame, SimReply>),
+    Recovered,
 }
 
 /// Stable classification of an action failure without retaining backend errors.
@@ -78,6 +78,8 @@ pub enum SlotActionFailure {
     ReplyEncoding,
     /// Complete outbound bytes could not enter the production frame type.
     FrameEncoding,
+    /// Simulated reply input exceeded the fixture's fixed preallocated capacity.
+    SimulatedInputCapacity,
     /// A prior recovery permanently ended this replay owner.
     SlotRecovered,
 }
@@ -111,6 +113,8 @@ pub struct SlotStepObservation {
     pub drive_failure: Option<SlotActionFailure>,
     /// Post-step slot state, absent after recovery consumed it.
     pub snapshot: Option<ConnectionSlotSnapshot>,
+    /// Ownership transferred by this step, present only for `Recovered`.
+    pub recovery: Option<RecoveryReport<OutboundFrame, SimReply>>,
     /// Terminal outcomes drained after this step.
     pub outcomes: Vec<EngineOutcome<SimReply>>,
     /// Lifecycle events drained after this step.
@@ -130,13 +134,13 @@ pub struct SlotReplayReport {
 impl SlotReplayReport {
     pub(crate) const fn new(
         observations: Vec<SlotStepObservation>,
-        final_snapshot: Option<ConnectionSlotSnapshot>,
+        final_snapshot: Option<&ConnectionSlotSnapshot>,
         outbound: Vec<u8>,
         applied_policy: Option<TcpSocketPolicy>,
     ) -> Self {
         Self {
             observations,
-            final_snapshot,
+            final_snapshot: final_snapshot.copied(),
             outbound,
             applied_policy,
         }
@@ -173,6 +177,8 @@ pub enum SlotReplayError {
     Schedule(ScheduleFailure),
     /// The production decoder began outside its retained-memory contract.
     SlotConstruction,
+    /// The simulated transport could not preallocate within its configured bound.
+    TransportConstruction,
 }
 
 impl core::fmt::Display for SlotReplayError {
@@ -184,6 +190,9 @@ impl core::fmt::Display for SlotReplayError {
             Self::Schedule(failure) => failure.fmt(formatter),
             Self::SlotConstruction => {
                 formatter.write_str("production slot simulation construction failed")
+            }
+            Self::TransportConstruction => {
+                formatter.write_str("simulated transport construction failed")
             }
         }
     }

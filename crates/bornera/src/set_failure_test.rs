@@ -17,7 +17,7 @@ use crate::set_connect_test::{RecordSocketAttempt, reset_socket_attempt, socket_
 use crate::{
     ConnectError, ConnectionConfig, ConnectionIdentity, ConnectionRecoveryError, ConnectionSet,
     ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, EngineError,
-    InboundClassifier, IoLimits, OwnerFailure, PublicationLimits,
+    InboundClassifier, IoLimits, OwnerFailure, PublicationLimits, TransportLimits,
 };
 
 #[test]
@@ -223,6 +223,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         core,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
         IoLimits::new(nz(2)?, nz(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nz(4)?),
     )?)
 }

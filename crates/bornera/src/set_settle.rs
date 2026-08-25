@@ -63,14 +63,22 @@ where
     let Some(directive) = entry.slot.take_close_request() else {
         return Ok(0);
     };
-    if let Some(transport) = entry.transport.as_mut()
-        && let Err(source) = poller.deregister(transport, resource)
-    {
-        record_mio_failure(&mut entry.slot, &source);
-        entry.slot.restore_close_request(directive);
-        let error = EngineError::Mio(source);
-        entry.slot.latch_failure(&error);
-        return Err(error);
+    if let Some(transport) = entry.transport.as_mut() {
+        let deregistration = poller.deregister(transport, resource);
+        let pressure = entry.slot.capture_transport_pressure(transport);
+        if let Err(source) = deregistration {
+            record_mio_failure(&mut entry.slot, &source);
+            entry.slot.restore_close_request(directive);
+            let error = EngineError::Mio(source);
+            entry.slot.latch_failure(&error);
+            return Err(error);
+        }
+        entry.transport = None;
+        if let Err(error) = pressure {
+            entry.slot.restore_close_request(directive);
+            entry.slot.latch_failure(&error);
+            return Err(error);
+        }
     }
     entry.transport = None;
     entry.slot.restore_close_request(directive);
@@ -100,13 +108,18 @@ where
     if desired == entry.interest {
         return Ok(0);
     }
-    if let Err(source) = poller.reregister(transport, resource, desired) {
+    let registration = poller.reregister(transport, resource, desired);
+    let pressure = entry.slot.capture_transport_pressure(transport);
+    if let Err(source) = registration {
         record_mio_failure(&mut entry.slot, &source);
         let error = EngineError::Mio(source);
         entry.slot.latch_failure(&error);
         return Err(error);
     }
     entry.interest = desired;
+    if let Err(error) = pressure {
+        entry.slot.latch_failure(&error);
+    }
     Ok(1)
 }
 

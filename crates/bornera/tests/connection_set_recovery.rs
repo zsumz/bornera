@@ -15,7 +15,8 @@ use std::{
 use bornera::{
     ConnectionConfig, ConnectionIdentity, ConnectionRecoveryError, ConnectionSet,
     ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, EngineError,
-    EngineInvariant, IoLimits, OutboundFrame, OwnerFailure, PublicationLimits, TransportState,
+    EngineInvariant, IoLimits, OutboundFrame, OwnerFailure, PublicationLimits, TransportLimits,
+    TransportState,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId, LaneId,
@@ -199,6 +200,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         core,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
         IoLimits::new(nz(4)?, nz(4)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nz(2)?),
     )?)
 }

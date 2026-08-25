@@ -8,7 +8,10 @@ use std::{
 use calandria::{Interest, Readiness};
 use mio::event::Source;
 
-use crate::{TcpSocketPolicy, TransportBudget, TransportError, TransportProgress};
+use crate::{
+    TcpSocketPolicy, TransportBudget, TransportError, TransportLimits, TransportPressure,
+    TransportProgress,
+};
 
 /// Backend-neutral nonblocking capability driven by a [`crate::ConnectionSlot`].
 ///
@@ -54,6 +57,19 @@ pub trait SlotTransport: Read + Write {
     fn can_write(&self) -> bool;
     /// Returns the readiness interest required for the current phase and write ownership.
     fn desired_interest(&self, has_writes: bool) -> Interest;
+    /// Returns the current accounted per-connection variable-memory charge.
+    ///
+    /// Implementations report observable allocation capacity rather than logical length,
+    /// conservatively charge opaque per-connection library state, and update the value
+    /// before returning from progression or application-I/O calls. Shared configuration
+    /// and operating-system buffers are excluded and require independent bounds.
+    fn pressure(&self) -> TransportPressure;
+    /// Returns the stable maximum pressure this exact adapter was configured to retain.
+    ///
+    /// Every mutable method must preserve `pressure().total() <= pressure_limit()`. A
+    /// selector-free host binds the adapter to a slot by supplying a limit no larger
+    /// than [`crate::ConnectionSlotLimits::transport_retained_bytes`].
+    fn pressure_limit(&self) -> TransportLimits;
     /// Clears the current readable observation after a would-block result.
     fn clear_read(&mut self);
     /// Clears the current writable observation after a would-block result.
@@ -67,17 +83,26 @@ pub trait SlotTransport: Read + Write {
 /// consumes the observation or reports `WouldBlock`.
 pub trait RegisteredTransport: SlotTransport + Source {
     /// Merges one readiness observation into this transport generation.
+    ///
+    /// The set owner samples pressure immediately after this call and after successful
+    /// selector registration changes.
     fn observe_readiness(&mut self, readiness: Readiness);
 }
 
 /// Capacity-first construction of one exact nonblocking registered transport.
 ///
 /// A [`crate::ConnectionSet`] invokes the connector only after reserving its bounded
-/// resource slot. Implementations must initiate at most one nonblocking address attempt.
+/// resource slot. Implementations must initiate at most one nonblocking address attempt
+/// and construct the adapter within the supplied per-connection memory limit.
 pub trait TransportConnector {
     /// Concrete transport produced for this homogeneous connection set.
     type Transport: RegisteredTransport;
 
-    /// Initiates one exact nonblocking attempt to the already-resolved address.
-    fn connect(self, address: SocketAddr) -> io::Result<Self::Transport>;
+    /// Initiates one exact bounded attempt to the already-resolved address.
+    ///
+    /// A returned transport must begin within `limits` and preserve that bound before
+    /// returning from every mutable transport or selector-source method. The set owner
+    /// samples the auditable charge after each such operation and fails closed if a safe
+    /// implementation violates the contract.
+    fn connect(self, address: SocketAddr, limits: TransportLimits) -> io::Result<Self::Transport>;
 }

@@ -4,7 +4,7 @@ use std::io;
 
 use bornera::{
     SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
-    TransportProgress,
+    TransportPressure, TransportProgress,
 };
 use calandria::Interest;
 
@@ -203,6 +203,14 @@ impl SlotTransport for TestTransport {
         } else {
             Interest::READABLE
         }
+    }
+
+    fn pressure(&self) -> TransportPressure {
+        TransportPressure::ZERO
+    }
+
+    fn pressure_limit(&self) -> bornera::TransportLimits {
+        bornera::TransportLimits::new(bornera_core::RetainedBytes::ZERO)
     }
 
     fn clear_read(&mut self) {}

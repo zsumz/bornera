@@ -47,6 +47,9 @@ where
         now: Moment,
         transport: Option<&mut T>,
     ) -> Result<SlotProgress, EngineError> {
+        if let Some(transport) = transport.as_deref() {
+            self.capture_transport_pressure(transport)?;
+        }
         let budget = self.limits.io_operations().get();
         let mut work = self.drive_deadlines(now, budget)?;
         if self.close_request.is_some() {
@@ -114,31 +117,35 @@ where
         for _ in 0..4 {
             let current = preference;
             preference = preference.next();
-            let progressed = match current {
-                IoPreference::Transport => self.drive_transport_once(transport, remaining)?,
+            let result = match current {
+                IoPreference::Transport => self.drive_transport_once(transport, remaining),
                 IoPreference::Decode => {
                     if self.decoder_pending {
-                        self.drive_decoder_once()?;
-                        Some(1)
+                        self.drive_decoder_once().map(|()| Some(1))
                     } else {
-                        None
+                        Ok(None)
                     }
                 }
                 IoPreference::Read => {
                     if self.is_transport_open() {
-                        self.drive_read_once(transport)?.map(|()| 1)
+                        self.drive_read_once(transport)
+                            .map(|progressed| progressed.map(|()| 1))
                     } else {
-                        None
+                        Ok(None)
                     }
                 }
                 IoPreference::Write => {
                     if self.is_transport_open() {
-                        self.drive_write_once(transport)?.map(|()| 1)
+                        self.drive_write_once(transport)
+                            .map(|progressed| progressed.map(|()| 1))
                     } else {
-                        None
+                        Ok(None)
                     }
                 }
             };
+            let pressure = self.capture_transport_pressure(transport);
+            let progressed = result?;
+            pressure?;
             if progressed.is_some() {
                 self.io_preference = preference;
                 return Ok(progressed);

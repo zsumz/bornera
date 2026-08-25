@@ -8,7 +8,7 @@ use mio::{Registry, Token, event::Source};
 use super::{TcpTransport, tcp::TransportPhase};
 use crate::{
     RegisteredTransport, SlotTransport, TcpSocketPolicy, TransportBudget, TransportError,
-    TransportProgress,
+    TransportPressure, TransportProgress,
 };
 
 impl Read for TcpTransport {
@@ -70,6 +70,14 @@ impl SlotTransport for TcpTransport {
 
     fn desired_interest(&self, has_writes: bool) -> calandria::Interest {
         Self::desired_interest(self, has_writes)
+    }
+
+    fn pressure(&self) -> TransportPressure {
+        TransportPressure::ZERO
+    }
+
+    fn pressure_limit(&self) -> crate::TransportLimits {
+        crate::TransportLimits::new(calandria::RetainedBytes::ZERO)
     }
 
     fn clear_read(&mut self) {

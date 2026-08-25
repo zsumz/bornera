@@ -11,4 +11,5 @@ pub use identity::{
 pub use set_limits::ConnectionSetLimits;
 pub use slot_limits::{
     ConnectionSlotLimits, ConnectionSlotLimitsError, DecoderLimits, IoLimits, PublicationLimits,
+    TransportLimits,
 };

@@ -6,7 +6,7 @@ use bornera_core::ConnectionSnapshot;
 use calandria::{MailboxSnapshot, ResourceTableSnapshot, RetainedBytes};
 use calandria_mio::MioPollerSnapshot;
 
-use crate::OwnerFailure;
+use crate::{OwnerFailure, TransportPressure};
 
 /// Current physical state of one registered transport capability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +42,8 @@ pub enum TransportFailurePhase {
     Write,
     /// Graceful transport shutdown progression.
     Shutdown,
+    /// Transport retained-memory observation.
+    Pressure,
     /// Selector registration, reregistration, or deregistration.
     Readiness,
 }
@@ -122,6 +124,12 @@ pub struct ConnectionSlotSnapshot {
     pub transport: TransportState,
     /// Most recently retained mechanical transport failure.
     pub transport_diagnostic: Option<TransportDiagnostic>,
+    /// Last observed transport-memory pressure, or `None` before binding an adapter.
+    pub transport_pressure: Option<TransportPressure>,
+    /// Stable retained-memory bound declared by the bound adapter, if observed.
+    pub transport_retained_limit: Option<RetainedBytes>,
+    /// Configured slot ceiling for any adapter-owned retained-memory bound.
+    pub transport_retained_ceiling: RetainedBytes,
     /// Complete frames retained by the write owner.
     pub queued_write_frames: usize,
     /// Complete-frame memory retained by the write owner.

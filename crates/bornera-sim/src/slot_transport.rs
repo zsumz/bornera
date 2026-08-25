@@ -4,9 +4,9 @@ use std::{collections::VecDeque, io};
 
 use bornera::{
     SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
-    TransportProgress,
+    TransportLimits, TransportPressure, TransportProgress,
 };
-use calandria::Interest;
+use calandria::{Interest, RetainedBytes};
 
 #[derive(Debug)]
 pub(crate) struct SimTransport {
@@ -16,28 +16,45 @@ pub(crate) struct SimTransport {
     peer_closed: bool,
     write_credit: usize,
     outbound: Vec<u8>,
+    limits: TransportLimits,
     applied_policy: Option<TcpSocketPolicy>,
 }
 
 impl SimTransport {
-    pub(crate) fn new() -> Self {
-        Self {
+    pub(crate) fn new(limits: TransportLimits) -> Result<Self, ()> {
+        let total = usize::try_from(limits.retained_bytes().get()).map_err(|_| ())?;
+        let inbound_limit = total / 2;
+        let outbound_limit = total.saturating_sub(inbound_limit);
+        let mut inbound = VecDeque::new();
+        inbound.try_reserve_exact(inbound_limit).map_err(|_| ())?;
+        let mut outbound = Vec::new();
+        outbound.try_reserve_exact(outbound_limit).map_err(|_| ())?;
+        let pressure = pressure(&inbound, &outbound);
+        if pressure.total() > limits.retained_bytes() {
+            return Err(());
+        }
+        Ok(Self {
             phase: Phase::Connecting,
             connect_ready: false,
-            inbound: VecDeque::new(),
+            inbound,
             peer_closed: false,
             write_credit: 0,
-            outbound: Vec::new(),
+            outbound,
+            limits: TransportLimits::new(pressure.total()),
             applied_policy: None,
-        }
+        })
     }
 
     pub(crate) fn observe_connect_ready(&mut self) {
         self.connect_ready = true;
     }
 
-    pub(crate) fn inject_read(&mut self, bytes: Vec<u8>) {
+    pub(crate) fn inject_read(&mut self, bytes: Vec<u8>) -> Result<(), ()> {
+        if bytes.len() > self.inbound.capacity().saturating_sub(self.inbound.len()) {
+            return Err(());
+        }
         self.inbound.extend(bytes);
+        Ok(())
     }
 
     pub(crate) fn observe_peer_closed(&mut self) {
@@ -97,8 +114,14 @@ impl io::Write for SimTransport {
                 "simulated transport closed",
             ));
         }
-        let written = buffer.len().min(self.write_credit);
+        let available = self.outbound.capacity().saturating_sub(self.outbound.len());
+        let written = buffer.len().min(self.write_credit).min(available);
         if written == 0 {
+            if available == 0 && !buffer.is_empty() {
+                return Err(io::Error::other(
+                    "simulated transport output capacity exhausted",
+                ));
+            }
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
         self.outbound.extend_from_slice(&buffer[..written]);
@@ -168,6 +191,14 @@ impl SlotTransport for SimTransport {
         }
     }
 
+    fn pressure(&self) -> TransportPressure {
+        pressure(&self.inbound, &self.outbound)
+    }
+
+    fn pressure_limit(&self) -> TransportLimits {
+        self.limits
+    }
+
     fn clear_read(&mut self) {}
 
     fn clear_write(&mut self) {
@@ -180,4 +211,13 @@ enum Phase {
     Connecting,
     Open,
     Closed,
+}
+
+fn pressure(inbound: &VecDeque<u8>, outbound: &Vec<u8>) -> TransportPressure {
+    let inbound =
+        RetainedBytes::try_from(inbound.capacity()).unwrap_or(RetainedBytes::new(u64::MAX));
+    let outbound =
+        RetainedBytes::try_from(outbound.capacity()).unwrap_or(RetainedBytes::new(u64::MAX));
+    TransportPressure::new(inbound, outbound, RetainedBytes::ZERO, RetainedBytes::ZERO)
+        .unwrap_or(TransportPressure::MAX)
 }

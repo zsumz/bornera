@@ -12,7 +12,7 @@ use calandria::{Readiness, ResourceOwnerId, Retained, RetainedBytes, TimerOwnerI
 use crate::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
     EngineCommitError, EngineError, InboundClassifier, IoLimits, OutboundFrame, OwnerFailure,
-    PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
+    PublicationLimits, StandaloneConnection, StandaloneConnectionConfig, TransportLimits,
 };
 
 #[derive(Debug)]
@@ -263,6 +263,7 @@ fn connection(
         core,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
         IoLimits::new(two, two),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(two),
     )?;
     let identity = ConnectionIdentity::new(

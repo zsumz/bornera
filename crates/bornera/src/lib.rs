@@ -48,7 +48,7 @@ pub use command::ConnectionCommand;
 pub use config::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSetLimits,
     ConnectionSlotConfig, ConnectionSlotLimits, ConnectionSlotLimitsError, DecoderLimits, IoLimits,
-    PublicationLimits, StandaloneConnectionConfig,
+    PublicationLimits, StandaloneConnectionConfig, TransportLimits,
 };
 pub use connection_error::{
     ConnectionAccessError, ConnectionCommitError, ConnectionRecoveryError, ConnectionReserveError,
@@ -75,6 +75,6 @@ pub(crate) use state::EngineState;
 pub use token::ConnectionToken;
 pub use transport::{
     RegisteredTransport, SlotTransport, TcpTransport, TransportBudget, TransportConnector,
-    TransportError, TransportProgress,
+    TransportError, TransportPressure, TransportPressureError, TransportProgress,
 };
 pub use waiter::ConnectionWaiter;

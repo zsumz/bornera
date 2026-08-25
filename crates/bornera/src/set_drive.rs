@@ -2,11 +2,12 @@
 
 use bornera_core::{CloseReason, FrameDecoder};
 use calandria::{
-    DrainStatus, Moment, Next, PollEvent, PollReport, Retained, Span, Turn, WorkCount,
+    DrainStatus, Moment, Next, PollEvent, PollReport, Readiness, Retained, Span, Turn, WorkCount,
 };
 
 use crate::{
-    ConnectionCommand, ConnectionSet, EngineError, InboundClassifier, RegisteredTransport,
+    ConnectionCommand, ConnectionSet, ConnectionSlot, EngineError, InboundClassifier,
+    RegisteredTransport,
     set_settle::{settle_entry, sync_interest},
     to_u64,
 };
@@ -109,7 +110,7 @@ where
                 *stale = stale.saturating_add(1);
                 continue;
             };
-            transport.observe_readiness(readiness);
+            observe_transport_readiness(&mut entry.slot, transport, readiness);
             if !entry.ready_queued {
                 entry.ready_queued = true;
                 ready.push_back(token);
@@ -176,11 +177,11 @@ where
                 } else {
                     0
                 };
-                let runnable = entry.slot.state.failure().is_none()
-                    && entry.slot.close_request.is_none()
-                    && entry.transport.as_ref().is_some_and(|transport| {
-                        progress.saturated || entry.slot.has_runnable_io(transport)
-                    });
+                let runnable = entry.slot.close_request.is_some()
+                    || (entry.slot.state.failure().is_none()
+                        && entry.transport.as_ref().is_some_and(|transport| {
+                            progress.saturated || entry.slot.has_runnable_io(transport)
+                        }));
                 Ok((
                     progress
                         .work
@@ -213,3 +214,22 @@ where
             .min()
     }
 }
+
+pub(crate) fn observe_transport_readiness<D, C, T>(
+    slot: &mut ConnectionSlot<D, C>,
+    transport: &mut T,
+    readiness: Readiness,
+) where
+    D: FrameDecoder,
+    D::Frame: Retained,
+    C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
+{
+    transport.observe_readiness(readiness);
+    if let Err(error) = slot.capture_transport_pressure(transport) {
+        slot.latch_failure(&error);
+    }
+}
+
+#[cfg(test)]
+mod readiness_tests;

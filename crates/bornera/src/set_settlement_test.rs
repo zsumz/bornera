@@ -15,7 +15,7 @@ use crate::{
     ConnectionEntry, ConnectionEvent, ConnectionIdentity, ConnectionSet, ConnectionSetConfig,
     ConnectionSetLimits, ConnectionSlot, ConnectionSlotConfig, ConnectionSlotLimits,
     ConnectionToken, DecoderLimits, EngineError, InboundClassifier, IoLimits, OwnerFailure,
-    PublicationLimits,
+    PublicationLimits, StandaloneConnection, TransportLimits,
 };
 
 #[test]
@@ -83,6 +83,58 @@ fn closed_publication_failure_is_returned_by_synchronous_finalize() -> Result<()
     Ok(())
 }
 
+#[test]
+fn missing_standalone_resource_is_diverged_not_healthy() -> Result<(), Box<dyn Error>> {
+    let identity = ConnectionIdentity::new(
+        EndpointId::new(7),
+        LaneId::new(8),
+        ConnectionId::new(9),
+        ConnectionEpoch::new(10),
+    );
+    let limits = slot_limits()?;
+    let slot = ConnectionSlot::new(
+        ConnectionSlotConfig::new(
+            identity,
+            Deadline::at(Moment::from_nanos(100)),
+            TimerOwnerId::new(11),
+        ),
+        limits,
+        Decoder,
+        Classifier,
+    )?;
+    let mut set: ConnectionSet<Decoder, Classifier> = ConnectionSet::new(
+        ConnectionSetConfig::new(ResourceOwnerId::new(12)),
+        ConnectionSetLimits::standalone(limits),
+    )?;
+    let resource = set
+        .resources
+        .admit(
+            identity,
+            ConnectionEntry {
+                slot,
+                transport: None,
+                interest: calandria::Interest::READ_WRITE,
+                ready_queued: false,
+            },
+        )
+        .map_err(|_| io::Error::other("fixture resource admission failed"))?;
+    let connection = ConnectionToken::new(resource, identity);
+    let _lost = set
+        .resources
+        .remove(resource)
+        .map_err(|_| io::Error::other("fixture resource removal failed"))?;
+
+    let report = StandaloneConnection { set, connection }
+        .try_recover()
+        .map_err(|_| io::Error::other("missing resource was reported healthy"))?;
+    assert_eq!(report.reason, OwnerFailure::OwnerInvariant);
+    assert_eq!(report.transport_pressure, None);
+    assert_eq!(report.transport_retained_limit, None);
+    assert_eq!(report.transport_retained_ceiling, None);
+    assert!(report.ownership_diverged);
+    Ok(())
+}
+
 fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
     let one = NonZeroUsize::MIN;
     Ok(ConnectionSlotLimits::new(
@@ -95,6 +147,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         )?,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
         IoLimits::new(one, one),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(one),
     )?)
 }

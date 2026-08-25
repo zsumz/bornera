@@ -56,7 +56,7 @@ where
         reason: OwnerFailure,
     ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, ConnectionRecoveryError> {
         let resource = connection.resource();
-        let cleanup_error = {
+        let (cleanup_error, pressure_failed) = {
             let (poller, resources) = (&mut self.poller, &mut self.resources);
             let (identity, entry) = resources
                 .get_mut(resource)
@@ -64,10 +64,13 @@ where
             if *identity != connection.identity() {
                 return Err(ConnectionRecoveryError::StaleConnection);
             }
-            entry
-                .transport
-                .as_mut()
-                .and_then(|transport| poller.deregister(transport, resource).err())
+            if let Some(transport) = entry.transport.as_mut() {
+                let cleanup = poller.deregister(transport, resource);
+                let pressure_failed = entry.slot.capture_transport_pressure(transport).is_err();
+                (cleanup.err(), pressure_failed)
+            } else {
+                (None, false)
+            }
         };
         if let Some(error) = cleanup_error.as_ref() {
             self.latch_selector_failure(error);
@@ -77,6 +80,8 @@ where
             .resources
             .remove(resource)
             .map_err(|_| ConnectionRecoveryError::StaleConnection)?;
-        Ok(entry.slot.recover_owned(reason, cleanup_error.is_some()))
+        Ok(entry
+            .slot
+            .recover_owned(reason, cleanup_error.is_some() || pressure_failed))
     }
 }

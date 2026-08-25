@@ -13,6 +13,7 @@ use bornera::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
     EngineCommitError, EngineError, EngineInvariant, InboundClassifier, IoLimits, OutboundFrame,
     OwnerFailure, PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
+    TransportLimits,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
@@ -234,6 +235,7 @@ fn engine_parts(
         connection,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
         IoLimits::new(four, four),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(lifecycle),
     )?;
     let identity = ConnectionIdentity::new(

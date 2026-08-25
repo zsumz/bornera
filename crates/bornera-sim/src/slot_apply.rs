@@ -42,8 +42,11 @@ impl ReplayOwner {
                 };
                 match encode_reply(accepted.key, &payload) {
                     Ok(encoded) => {
-                        self.transport.inject_read(encoded);
-                        SlotActionResult::ReplyInjected(operation)
+                        if self.transport.inject_read(encoded).is_ok() {
+                            SlotActionResult::ReplyInjected(operation)
+                        } else {
+                            SlotActionResult::Rejected(SlotActionFailure::SimulatedInputCapacity)
+                        }
                     }
                     Err(_) => SlotActionResult::Rejected(SlotActionFailure::ReplyEncoding),
                 }
@@ -87,7 +90,8 @@ impl ReplayOwner {
                     return SlotActionResult::Rejected(SlotActionFailure::SlotRecovered);
                 };
                 self.transport.close();
-                SlotActionResult::Recovered(slot.recover(reason))
+                self.recovery = Some(slot.recover(reason));
+                SlotActionResult::Recovered
             }
         }
     }

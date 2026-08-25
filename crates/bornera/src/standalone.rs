@@ -1,5 +1,7 @@
 //! Capacity-one convenience wrapper around the shared-selector owner.
 
+mod connect;
+
 use bornera_core::{
     CancelOutcome, CloseReason, FrameDecoder, InputDisposition, OperationId, OperationOptions,
     OperationPermit,
@@ -7,11 +9,11 @@ use bornera_core::{
 use calandria::{Duty, EventBatchDrain, Moment, Next, Retained, Span, Turn, WaitOutcome};
 
 use crate::{
-    ConnectError, ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
-    ConnectionPulseHandle, ConnectionSet, ConnectionSetLimits, ConnectionSetSnapshot,
-    ConnectionSlotLimits, ConnectionSlotSnapshot, ConnectionToken, EngineCommitError, EngineError,
-    EngineInvariant, EngineOutcome, InboundClassifier, OutboundFrame, OwnerFailure,
-    RegisteredTransport, StandaloneConnectionConfig, TcpTransport, TransportState,
+    ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
+    ConnectionPulseHandle, ConnectionSet, ConnectionSetSnapshot, ConnectionSlotSnapshot,
+    ConnectionToken, EngineCommitError, EngineError, EngineInvariant, EngineOutcome,
+    InboundClassifier, OutboundFrame, OwnerFailure, RegisteredTransport, TcpTransport,
+    TransportState,
 };
 
 /// Dedicated capacity-one owner implemented by the same bounded connection set.
@@ -23,26 +25,6 @@ where
 {
     pub(crate) set: ConnectionSet<D, C, T>,
     pub(crate) connection: ConnectionToken,
-}
-
-impl<D, C> StandaloneConnection<D, C, TcpTransport>
-where
-    D: FrameDecoder,
-    D::Frame: Retained,
-    C: InboundClassifier<D::Frame>,
-{
-    /// Begins one exact nonblocking connection in a capacity-one set.
-    pub fn connect(
-        config: StandaloneConnectionConfig,
-        limits: ConnectionSlotLimits,
-        decoder: D,
-        classifier: C,
-    ) -> Result<Self, ConnectError<D::Error>> {
-        let set_limits = ConnectionSetLimits::standalone(limits);
-        let mut set = ConnectionSet::new(config.set(), set_limits).map_err(ConnectError::Mio)?;
-        let connection = set.connect(config.connection(), limits, decoder, classifier)?;
-        Ok(Self { set, connection })
-    }
 }
 
 impl<D, C, T> StandaloneConnection<D, C, T>

@@ -58,6 +58,14 @@ can leave Bornera before encoded output reaches the operating system. Neither
 boundary proves remote receipt or processing. Protocol crates retain codecs,
 routing, session semantics, topology, errors, and retry policy.
 
+Each registered transport reports an auditable per-connection memory charge:
+observable allocation capacities plus conservative configured charges for opaque
+transport-library state. Bornera checks it around selector registration and after
+every readiness, transport, or application-I/O step, retains the last observation
+in snapshots and recovery, and fails closed if the configured limit is crossed.
+Shared configuration and operating-system socket buffers remain explicitly
+outside this measure and require bounds from their respective owners.
+
 ## Crates
 
 | Crate | Purpose |

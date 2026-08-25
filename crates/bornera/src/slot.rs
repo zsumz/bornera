@@ -7,7 +7,8 @@ use calandria::{Deadline, EventBatch, Retained, TimerQueue, TimerToken};
 
 use crate::{
     ConnectionEvent, ConnectionSlotConfig, ConnectionSlotLimits, EngineOutcome, EngineState,
-    InboundClassifier, OutboundFrame, TcpSocketPolicy, TransportDiagnostic, TransportState,
+    InboundClassifier, OutboundFrame, TcpSocketPolicy, TransportDiagnostic, TransportPressure,
+    TransportState,
 };
 
 /// One selector-free mutable owner for one exact connection epoch.
@@ -34,6 +35,9 @@ where
     pub(crate) io_preference: IoPreference,
     pub(crate) transport_state: TransportState,
     pub(crate) transport_diagnostic: Option<TransportDiagnostic>,
+    pub(crate) transport_pressure: Option<TransportPressure>,
+    pub(crate) transport_retained_limit: Option<RetainedBytes>,
+    pub(crate) transport_contract_diverged: bool,
     pub(crate) close_request: Option<CloseDirective>,
     pub(crate) state: EngineState,
 }
@@ -79,6 +83,9 @@ where
             io_preference: IoPreference::Transport,
             transport_state: TransportState::Connecting,
             transport_diagnostic: None,
+            transport_pressure: None,
+            transport_retained_limit: None,
+            transport_contract_diverged: false,
             close_request: None,
             state: EngineState::Running,
         })

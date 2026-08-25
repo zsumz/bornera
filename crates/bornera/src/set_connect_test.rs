@@ -20,7 +20,7 @@ use crate::{
     ConnectionConfig, ConnectionIdentity, ConnectionSet, ConnectionSetConfig, ConnectionSetLimits,
     ConnectionSlotLimits, DecoderLimits, InboundClassifier, IoLimits, PublicationLimits,
     RegisteredTransport, SlotTransport, TcpSocketPolicy, TcpTransport, TransportBudget,
-    TransportConnector, TransportError, TransportProgress,
+    TransportConnector, TransportError, TransportLimits, TransportPressure, TransportProgress,
 };
 
 static SOCKET_ATTEMPTED: AtomicBool = AtomicBool::new(false);
@@ -39,7 +39,11 @@ pub(crate) struct RecordSocketAttempt;
 impl TransportConnector for RecordSocketAttempt {
     type Transport = TcpTransport;
 
-    fn connect(self, _address: SocketAddr) -> io::Result<Self::Transport> {
+    fn connect(
+        self,
+        _address: SocketAddr,
+        _limits: crate::TransportLimits,
+    ) -> io::Result<Self::Transport> {
         SOCKET_ATTEMPTED.store(true, Ordering::Relaxed);
         Err(io::Error::other("capacity check acquired a socket"))
     }
@@ -85,7 +89,11 @@ struct TestConnector;
 impl TransportConnector for TestConnector {
     type Transport = TestRegisteredTransport;
 
-    fn connect(self, _address: SocketAddr) -> io::Result<Self::Transport> {
+    fn connect(
+        self,
+        _address: SocketAddr,
+        _limits: crate::TransportLimits,
+    ) -> io::Result<Self::Transport> {
         Ok(TestRegisteredTransport {
             open: false,
             registered_readable: false,
@@ -156,6 +164,14 @@ impl SlotTransport for TestRegisteredTransport {
 
     fn desired_interest(&self, _has_writes: bool) -> Interest {
         Interest::READABLE
+    }
+
+    fn pressure(&self) -> TransportPressure {
+        TransportPressure::ZERO
+    }
+
+    fn pressure_limit(&self) -> crate::TransportLimits {
+        crate::TransportLimits::new(calandria::RetainedBytes::ZERO)
     }
 
     fn clear_read(&mut self) {}
@@ -255,6 +271,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         connection,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
         IoLimits::new(NonZeroUsize::MIN, NonZeroUsize::MIN),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(NonZeroUsize::MIN),
     )?)
 }

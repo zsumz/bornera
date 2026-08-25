@@ -6,7 +6,7 @@ use bornera::{
     ConnectionAccessError, ConnectionConfig, ConnectionIdentity, ConnectionSet,
     ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, IoLimits,
     PublicationLimits, SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy,
-    TransportState,
+    TransportLimits, TransportState,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
@@ -135,6 +135,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         core,
         DecoderLimits::new(RetainedBytes::new(64), RetainedBytes::new(64)),
         IoLimits::new(nz(8)?, nz(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nz(8)?),
     )?)
 }
