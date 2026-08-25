@@ -11,6 +11,7 @@
 //! capacities for all private protocol and cryptographic-provider state. Shared
 //! [`rustls::ClientConfig`] ownership and operating-system socket buffers remain
 //! outside the per-connection charge.
+#![doc = include_str!("sizing.md")]
 mod application;
 mod config;
 mod config_display;
