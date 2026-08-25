@@ -96,8 +96,12 @@ fn explicit_tcp_policy_is_applied_before_transport_open_publication() -> Result<
         Err(SocketPolicyError::ZeroKeepaliveIdle)
     ));
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let keepalive = TcpKeepalivePolicy::new(Span::from_nanos(60_000_000_000))?;
+    let idle = Span::from_nanos(60_000_000_000);
+    let keepalive = TcpKeepalivePolicy::new(idle)?;
     let policy = TcpSocketPolicy::new(TcpNoDelay::Disabled).keepalive(keepalive);
+    assert_eq!(policy.no_delay(), TcpNoDelay::Disabled);
+    assert_eq!(policy.keepalive_policy(), Some(keepalive));
+    assert_eq!(keepalive.idle(), idle);
     let mut set = connection_set()?;
     let connection = set.connect(
         connection_config(listener.local_addr()?, 10, 20, 30, far_deadline()).socket_policy(policy),
