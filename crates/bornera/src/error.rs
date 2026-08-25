@@ -1,19 +1,23 @@
 //! Construction, owner-integrity, and ownership-preserving commit failures.
 
-use core::fmt;
 use std::io;
 
 use bornera_core::{ConnectionCoreError, FrameCommitError, FrameDecodeError};
 use calandria::{EventBatchFailure, TimerScheduleFailure};
 use calandria_mio::MioError;
 
-use crate::OwnerFailure;
+use crate::{OwnerFailure, TransportPressure};
+
+mod display;
 
 /// Failure before one production connection owner becomes observable.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ConnectError<E> {
-    /// The operating system rejected creation of the nonblocking stream.
+    /// The connector rejected transport construction or the exact nonblocking attempt.
+    ///
+    /// Adapter-specific construction failures may be retained as the inner
+    /// [`io::Error::get_ref`] source.
     Io(io::Error),
     /// The Mio readiness adapter could not be created or registered.
     Mio(MioError),
@@ -23,6 +27,20 @@ pub enum ConnectError<E> {
     ResourceAdmission,
     /// The shared selector owner had already failed permanently.
     OwnerFailed(OwnerFailure),
+    /// The transport exceeded the slot's retained bound during construction or registration.
+    TransportCapacity {
+        /// Configured aggregate transport retained-memory bound.
+        limit: calandria::RetainedBytes,
+        /// Auditable pressure reported during construction or registration.
+        reported: TransportPressure,
+    },
+    /// The adapter's declared pressure ceiling was incompatible with its slot binding.
+    TransportLimit {
+        /// Configured slot ceiling or previously bound adapter ceiling.
+        limit: calandria::RetainedBytes,
+        /// Stable ceiling declared by the returned transport.
+        reported: calandria::RetainedBytes,
+    },
 }
 
 /// Fatal divergence inside an otherwise bounded production owner.
@@ -51,6 +69,8 @@ pub enum EngineInvariant {
     EventSequenceExhausted,
     /// Closing policy did not retain the mechanical reason required for publication.
     MissingCloseReason,
+    /// An ordered drain reached physical closure without its absolute shutdown bound.
+    MissingShutdownDeadline,
     /// A newer core emitted an effect this production owner cannot interpret.
     UnsupportedCoreEffect,
     /// A safe transport implementation reported more bytes than the supplied read buffer.
@@ -60,6 +80,31 @@ pub enum EngineInvariant {
         /// Impossible byte count reported by the transport.
         reported: usize,
     },
+    /// A safe transport reported work outside the supplied hard budget.
+    TransportProgressContract {
+        /// Hard bounds supplied for the call.
+        budget: crate::TransportBudget,
+        /// Impossible progress reported by the transport.
+        reported: crate::TransportProgress,
+    },
+    /// A transport claimed application readiness before accepting establishment policy.
+    TransportOpenedBeforeEstablishment,
+    /// A transport exceeded its configured retained-memory capacity.
+    TransportRetainedCapacity {
+        /// Configured aggregate transport retained-memory bound.
+        limit: calandria::RetainedBytes,
+        /// Auditable pressure observed while the transport was live.
+        reported: TransportPressure,
+    },
+    /// A selector-free adapter declared an incompatible or unstable pressure ceiling.
+    TransportLimitContract {
+        /// Configured slot ceiling or previously bound adapter ceiling.
+        limit: calandria::RetainedBytes,
+        /// Stable ceiling declared by the supplied transport.
+        reported: calandria::RetainedBytes,
+    },
+    /// A transport advertised immediate work but performed none.
+    TransportNoProgress,
 }
 
 /// Fatal slot or readiness-adapter failure returned by a bounded operation.
@@ -85,8 +130,11 @@ pub enum EngineError {
 pub enum EngineCommitError<F> {
     /// Policy or writer admission rejected and preserved both permit and frame.
     Rejected(Box<FrameCommitError<F>>),
-    /// The accepted operation exposed a fatal owner invariant while publishing effects.
-    Owner {
+    /// The operation was accepted before effect publication exposed fatal owner divergence.
+    ///
+    /// The caller must publish any reserved semantic context for `operation`, must not
+    /// retry the frame, and must recover the failed owner.
+    AcceptedOwnerFailure {
         /// Operation already accepted before the fatal owner divergence.
         operation: bornera_core::OperationId,
         /// Fatal owner failure.
@@ -101,87 +149,4 @@ pub enum EngineCommitError<F> {
         /// Exact frame that never transferred into write ownership.
         frame: F,
     },
-}
-
-impl<E: fmt::Display> fmt::Display for ConnectError<E> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Io(source) => source.fmt(formatter),
-            Self::Mio(source) => source.fmt(formatter),
-            Self::Decoder(source) => source.fmt(formatter),
-            Self::ResourceAdmission => formatter.write_str("connection set capacity is exhausted"),
-            Self::OwnerFailed(_) => formatter.write_str("shared selector owner previously failed"),
-        }
-    }
-}
-
-impl<E> core::error::Error for ConnectError<E> where E: core::error::Error + 'static {}
-
-impl fmt::Display for EngineError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Mio(source) => source.fmt(formatter),
-            Self::Core(source) => source.fmt(formatter),
-            Self::Invariant(source) => source.fmt(formatter),
-            Self::OwnerFailed(_) => formatter.write_str("connection owner previously failed"),
-        }
-    }
-}
-
-impl core::error::Error for EngineError {}
-
-impl fmt::Display for EngineInvariant {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::ResourceToken => "a proven-live transport resource disappeared",
-            Self::UnexpectedDiscardEffect => "an internal write discard escaped the aggregate",
-            Self::UnexpectedUnitReply => "unit policy transition published a reply",
-            Self::DeadlineIndexCapacity => "deadline index exceeded operation capacity",
-            Self::DeadlineSchedule(_) => "reserved operation deadline could not be scheduled",
-            Self::OutcomePublication(_) => "reserved terminal outcome could not be published",
-            Self::RecoveryOutcomePublication(_) => {
-                "terminal outcome exceeded bounded recovery ownership"
-            }
-            Self::LifecyclePublication(_) => "bounded lifecycle event publication failed",
-            Self::RecoveryLifecyclePublication(_) => {
-                "lifecycle edge exceeded bounded recovery ownership"
-            }
-            Self::EventSequenceExhausted => "connection event sequence is exhausted",
-            Self::MissingCloseReason => "closing connection retained no mechanical reason",
-            Self::UnsupportedCoreEffect => "connection core emitted an unsupported effect",
-            Self::TransportReadContract { .. } => {
-                "transport reported a read larger than the supplied buffer"
-            }
-        })
-    }
-}
-
-impl<F: fmt::Debug> fmt::Display for EngineCommitError<F> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Rejected(source) => source.fmt(formatter),
-            Self::Owner { source, .. } => source.fmt(formatter),
-            Self::OwnerFailed { .. } => formatter.write_str("connection owner previously failed"),
-        }
-    }
-}
-
-impl<F: fmt::Debug> core::error::Error for EngineCommitError<F> {}
-
-impl<E> From<io::Error> for ConnectError<E> {
-    fn from(source: io::Error) -> Self {
-        Self::Io(source)
-    }
-}
-
-impl<E> From<MioError> for ConnectError<E> {
-    fn from(source: MioError) -> Self {
-        Self::Mio(source)
-    }
-}
-
-impl From<MioError> for EngineError {
-    fn from(source: MioError) -> Self {
-        Self::Mio(source)
-    }
 }

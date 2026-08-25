@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 
 use bornera::{
     ConnectionIdentity, ConnectionSlot, ConnectionSlotConfig, ConnectionSlotLimits, DecoderLimits,
-    InboundClassifier, IoLimits, PublicationLimits,
+    InboundClassifier, IoLimits, PublicationLimits, TransportLimits,
 };
 use bornera_core::{
     ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId, FrameDecoder, LaneId,
@@ -44,6 +44,7 @@ pub(crate) fn slot_with_io_operations(
         core,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
         IoLimits::new(nonzero(operations)?, nonzero(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nonzero(8)?),
     )?;
     let identity = ConnectionIdentity::new(

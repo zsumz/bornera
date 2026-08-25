@@ -9,14 +9,15 @@ use calandria::{EventBatchDrain, Moment, Retained};
 use crate::{
     ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionReserveError,
     ConnectionRetireError, ConnectionSet, ConnectionSlotSnapshot, ConnectionToken, EngineOutcome,
-    InboundClassifier, OutboundFrame, TransportState,
+    InboundClassifier, OutboundFrame, RegisteredTransport, TransportState,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Reserves bounded operation ownership in one exact connection.
     pub fn reserve(
@@ -35,6 +36,10 @@ where
     }
 
     /// Atomically transfers a permit and prepared frame to one connection.
+    ///
+    /// An accepted-owner failure still carries the exact accepted operation. The caller
+    /// must publish its semantic context, must not retry the frame, and must recover the
+    /// failed connection.
     pub fn commit(
         &mut self,
         connection: ConnectionToken,
@@ -54,7 +59,7 @@ where
             Ok(operation) => match self.settle_connection(resource) {
                 Ok(_) => Ok(operation),
                 Err(source) => Err(ConnectionCommitError::Connection(
-                    crate::EngineCommitError::Owner { operation, source },
+                    crate::EngineCommitError::AcceptedOwnerFailure { operation, source },
                 )),
             },
             Err(error) => {
@@ -93,15 +98,16 @@ where
         }
     }
 
-    /// Closes admission and begins ordered draining synchronously.
+    /// Closes admission and drains operations plus transport egress through one deadline.
     pub fn begin_drain(
         &mut self,
         connection: ConnectionToken,
+        deadline: calandria::Deadline,
     ) -> Result<InputDisposition, ConnectionAccessError> {
-        self.apply_and_enqueue(connection, ConnectionPortAction::BeginDrain)
+        self.apply_and_enqueue(connection, ConnectionPortAction::BeginDrain(deadline))
     }
 
-    /// Requests mechanical closure synchronously.
+    /// Forces mechanical closure, preempting any transport-local graceful shutdown.
     pub fn finalize(
         &mut self,
         connection: ConnectionToken,
@@ -185,7 +191,7 @@ where
         let entry = self.entry_mut(connection)?;
         let result = match action {
             ConnectionPortAction::OpenAdmission => entry.slot.open_admission(),
-            ConnectionPortAction::BeginDrain => entry.slot.begin_drain(),
+            ConnectionPortAction::BeginDrain(deadline) => entry.slot.begin_drain(deadline),
         };
         self.enqueue(resource);
         match result {
@@ -204,5 +210,5 @@ where
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ConnectionPortAction {
     OpenAdmission,
-    BeginDrain,
+    BeginDrain(calandria::Deadline),
 }

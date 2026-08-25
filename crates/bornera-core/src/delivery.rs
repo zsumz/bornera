@@ -1,11 +1,12 @@
 //! Conservative delivery certainty for terminal operation outcomes.
 
-/// What the local connection can prove about delivery to the peer.
+/// What the local connection can prove after transferring application bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Delivery {
-    /// No byte of the operation entered transport write ownership.
+    /// No application byte entered irreversible transport write ownership.
     NotSent,
-    /// Some or all bytes may have reached the peer.
+    /// Some or all application bytes entered irreversible transport ownership and may
+    /// have reached the peer.
     PossiblySent,
 }
 

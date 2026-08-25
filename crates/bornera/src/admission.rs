@@ -41,6 +41,9 @@ where
     }
 
     /// Atomically transfers a permit and complete frame to this owner.
+    ///
+    /// [`EngineCommitError::AcceptedOwnerFailure`] means ownership transferred and the
+    /// returned operation must not be retried even though effect publication failed.
     pub fn commit(
         &mut self,
         permit: OperationPermit,
@@ -73,7 +76,7 @@ where
         };
         if let Err(source) = self.interpret_unit(transition) {
             self.latch_failure(&source);
-            return Err(EngineCommitError::Owner { operation, source });
+            return Err(EngineCommitError::AcceptedOwnerFailure { operation, source });
         }
         Ok(operation)
     }

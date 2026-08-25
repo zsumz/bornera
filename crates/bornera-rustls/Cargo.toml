@@ -1,0 +1,32 @@
+[package]
+name = "bornera-rustls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/bornera-rustls"
+description = "Bounded rustls client transports for Bornera connection owners."
+keywords = ["networking", "tls", "rustls", "connection"]
+categories = ["network-programming", "cryptography"]
+publish = ["crates-io"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+bornera.workspace = true
+calandria = { workspace = true, features = ["std"] }
+mio.workspace = true
+rustls.workspace = true
+socket2.workspace = true
+
+[dev-dependencies]
+bornera-core.workspace = true
+rcgen.workspace = true
+
+[lints]
+workspace = true

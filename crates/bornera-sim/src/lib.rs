@@ -11,6 +11,7 @@ mod slot_report;
 mod slot_trace;
 mod slot_trace_error;
 mod slot_transport;
+mod slot_transport_state;
 mod trace;
 mod wire;
 
@@ -34,4 +35,5 @@ pub use wire::{SimReply, SimWireError};
 
 pub(crate) use slot_replay::{Accepted, ReplayOwner, SimSlot};
 pub(crate) use slot_transport::SimTransport;
+pub(crate) use slot_transport_state::{Phase, ShutdownState, transport_pressure};
 pub(crate) use wire::{SimClassifier, SimDecoder, encode_reply};

@@ -9,7 +9,10 @@ use super::AdmissionClass;
 pub enum CompletionMode {
     /// Retain the operation after writing until a matching reply arrives.
     ReplyExpected,
-    /// Complete once the full frame leaves local write ownership.
+    /// Complete once the full application frame leaves Bornera write ownership.
+    ///
+    /// A buffering transport may still own encoded output that has not reached the
+    /// operating system.
     WriteComplete,
 }
 

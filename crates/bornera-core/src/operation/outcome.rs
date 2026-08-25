@@ -39,7 +39,10 @@ pub enum OperationFailure {
 pub enum OperationOutcome<F> {
     /// The matching discipline assigned a reply to this operation.
     Reply(F),
-    /// The complete frame left local write ownership without awaiting a reply.
+    /// The complete application frame left Bornera write ownership without awaiting a reply.
+    ///
+    /// A buffering transport may still own encoded output that has not reached the
+    /// operating system.
     WriteComplete {
         /// What local transport ownership can prove.
         delivery: Delivery,

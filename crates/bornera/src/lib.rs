@@ -1,8 +1,6 @@
 //! Production connection ownership for native protocol clients.
 //!
-//! This crate privately owns native plaintext TCP capabilities while Calandria
-//! supplies time, readiness, timers, resources, wakes, and hosting. Protocol
-//! crates retain codecs, session meaning, routing, retry, and public APIs.
+//! Bornera owns native transports; protocol crates own session meaning and policy.
 mod admission;
 mod classifier;
 mod command;
@@ -14,7 +12,6 @@ mod error;
 mod event;
 mod failure;
 mod frame;
-mod io;
 mod lifecycle;
 mod outcome;
 mod port;
@@ -22,6 +19,8 @@ mod recovery;
 mod set;
 mod set_access;
 mod set_connect;
+#[cfg(test)]
+mod set_connect_test;
 mod set_drive;
 mod set_failure;
 #[cfg(test)]
@@ -41,7 +40,6 @@ mod transition;
 #[cfg(test)]
 mod transition_test;
 mod transport;
-mod transport_port;
 mod waiter;
 
 pub use bornera_core::{CompletionMode, FrameDecoder, OperationOptions};
@@ -50,7 +48,7 @@ pub use command::ConnectionCommand;
 pub use config::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSetLimits,
     ConnectionSlotConfig, ConnectionSlotLimits, ConnectionSlotLimitsError, DecoderLimits, IoLimits,
-    PublicationLimits, StandaloneConnectionConfig,
+    PublicationLimits, StandaloneConnectionConfig, TransportLimits,
 };
 pub use connection_error::{
     ConnectionAccessError, ConnectionCommitError, ConnectionRecoveryError, ConnectionReserveError,
@@ -61,20 +59,22 @@ pub use error::{ConnectError, EngineCommitError, EngineError, EngineInvariant};
 pub use event::ConnectionEvent;
 pub use frame::{OutboundFrame, OutboundFrameError};
 pub use outcome::EngineOutcome;
-pub use port::ConnectionPort;
+pub use port::{ConnectionPort, ConnectionPulseHandle};
 pub use recovery::{OwnerFailure, RecoveryReport, RecoveryWhileRunning};
 pub(crate) use set::ConnectionEntry;
 pub use set::ConnectionSet;
 pub use slot::ConnectionSlot;
 pub(crate) use slot::{CloseDirective, DeadlineEntry, DeadlineEvent, IoPreference, to_u64};
 pub use snapshot::{
-    ConnectionSetSnapshot, ConnectionSlotSnapshot, TransportDiagnostic, TransportFailurePhase,
-    TransportState,
+    ConnectionSetSnapshot, ConnectionSlotSnapshot, TransportDiagnostic, TransportFailureKind,
+    TransportFailurePhase, TransportState,
 };
 pub use socket::{SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy};
 pub use standalone::StandaloneConnection;
 pub(crate) use state::EngineState;
 pub use token::ConnectionToken;
-pub(crate) use transport::PlaintextTransport;
-pub use transport_port::{ConnectProgress, SlotTransport};
+pub use transport::{
+    RegisteredTransport, SlotTransport, TcpTransport, TransportBudget, TransportConnector,
+    TransportError, TransportPressure, TransportPressureError, TransportProgress,
+};
 pub use waiter::ConnectionWaiter;

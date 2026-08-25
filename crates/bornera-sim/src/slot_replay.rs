@@ -63,8 +63,13 @@ impl SlotSimulator {
             SimClassifier,
         )
         .map_err(|_| SlotReplayError::SlotConstruction)?;
-        let mut owner =
-            ReplayOwner::new(slot, trace.actions().len(), observation_capacity, horizon);
+        let mut owner = ReplayOwner::new(
+            slot,
+            self.config.limits().transport_limits(),
+            trace.actions().len(),
+            observation_capacity,
+            horizon,
+        )?;
         owner.sync_deadline(&mut timeline)?;
 
         while let Some(delivery) = timeline.pop_next() {
@@ -81,6 +86,7 @@ pub(crate) struct ReplayOwner {
     pub(crate) transport: SimTransport,
     pub(crate) accepted: Vec<Accepted>,
     observations: Vec<SlotStepObservation>,
+    pub(crate) recovery: Option<bornera::RecoveryReport<bornera::OutboundFrame, SimReply>>,
     deadline: Option<EventToken>,
     horizon: Option<Moment>,
 }
@@ -88,18 +94,21 @@ pub(crate) struct ReplayOwner {
 impl ReplayOwner {
     fn new(
         slot: SimSlot,
+        transport_limits: bornera::TransportLimits,
         action_capacity: usize,
         observation_capacity: usize,
         horizon: Option<Moment>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SlotReplayError> {
+        Ok(Self {
             slot: Some(slot),
-            transport: SimTransport::new(),
+            transport: SimTransport::new(transport_limits)
+                .map_err(|()| SlotReplayError::TransportConstruction)?,
             accepted: Vec::with_capacity(action_capacity),
             observations: Vec::with_capacity(observation_capacity),
+            recovery: None,
             deadline: None,
             horizon,
-        }
+        })
     }
 
     fn apply_event(&mut self, token: EventToken, event: ReplayEvent) {
@@ -118,12 +127,14 @@ impl ReplayOwner {
         };
         let (progress, drive_failure) = self.drive(at);
         let (snapshot, outcomes, events) = self.observe();
+        let recovery = self.recovery.take();
         self.observations.push(SlotStepObservation {
             at,
             kind,
             progress,
             drive_failure,
             snapshot,
+            recovery,
             outcomes,
             events,
         });
@@ -190,7 +201,7 @@ impl ReplayOwner {
         let final_snapshot = self.slot.as_ref().map(ConnectionSlot::snapshot);
         SlotReplayReport::new(
             self.observations,
-            final_snapshot,
+            final_snapshot.as_ref(),
             self.transport.outbound().to_vec(),
             self.transport.applied_policy(),
         )

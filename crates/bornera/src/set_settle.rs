@@ -6,14 +6,15 @@ use calandria_mio::{MioError, MioPoller};
 
 use crate::{
     ConnectionEntry, ConnectionSet, EngineError, EngineInvariant, InboundClassifier,
-    TransportDiagnostic, TransportFailurePhase,
+    RegisteredTransport, TransportDiagnostic, TransportFailurePhase,
 };
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     pub(crate) fn settle_connection(
         &mut self,
@@ -48,27 +49,39 @@ where
     }
 }
 
-pub(crate) fn settle_entry<D, C>(
+pub(crate) fn settle_entry<D, C, T>(
     poller: &mut MioPoller,
     resource: ResourceToken,
-    entry: &mut ConnectionEntry<D, C>,
+    entry: &mut ConnectionEntry<D, C, T>,
 ) -> Result<usize, EngineError>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
+    if let Some(transport) = entry.transport.as_ref() {
+        entry.slot.observe_shutdown_complete(transport);
+    }
     let Some(directive) = entry.slot.take_close_request() else {
         return Ok(0);
     };
-    if let Some(transport) = entry.transport.as_mut()
-        && let Err(source) = poller.deregister(transport, resource)
-    {
-        record_mio_failure(&mut entry.slot, &source);
-        entry.slot.restore_close_request(directive);
-        let error = EngineError::Mio(source);
-        entry.slot.latch_failure(&error);
-        return Err(error);
+    if let Some(transport) = entry.transport.as_mut() {
+        let deregistration = poller.deregister(transport, resource);
+        let pressure = entry.slot.capture_transport_pressure(transport);
+        if let Err(source) = deregistration {
+            record_mio_failure(&mut entry.slot, &source);
+            entry.slot.restore_close_request(directive);
+            let error = EngineError::Mio(source);
+            entry.slot.latch_failure(&error);
+            return Err(error);
+        }
+        entry.transport = None;
+        if let Err(error) = pressure {
+            entry.slot.restore_close_request(directive);
+            entry.slot.latch_failure(&error);
+            return Err(error);
+        }
     }
     entry.transport = None;
     entry.slot.restore_close_request(directive);
@@ -80,30 +93,36 @@ where
     Ok(1)
 }
 
-pub(crate) fn sync_interest<D, C>(
+pub(crate) fn sync_interest<D, C, T>(
     poller: &mut MioPoller,
     resource: ResourceToken,
-    entry: &mut ConnectionEntry<D, C>,
+    entry: &mut ConnectionEntry<D, C, T>,
 ) -> Result<usize, EngineError>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     let Some(transport) = entry.transport.as_mut() else {
         return Ok(0);
     };
     let desired = entry.slot.desired_interest(transport);
-    if desired == transport.interest() {
+    if desired == entry.interest {
         return Ok(0);
     }
-    if let Err(source) = poller.reregister(transport, resource, desired) {
+    let registration = poller.reregister(transport, resource, desired);
+    let pressure = entry.slot.capture_transport_pressure(transport);
+    if let Err(source) = registration {
         record_mio_failure(&mut entry.slot, &source);
         let error = EngineError::Mio(source);
         entry.slot.latch_failure(&error);
         return Err(error);
     }
-    transport.set_interest(desired);
+    entry.interest = desired;
+    if let Err(error) = pressure {
+        entry.slot.latch_failure(&error);
+    }
     Ok(1)
 }
 

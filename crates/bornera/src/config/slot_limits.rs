@@ -1,4 +1,4 @@
-//! Coherent decoder, I/O, publication, and core bounds for one slot.
+//! Coherent decoder, I/O, transport, publication, and core bounds for one slot.
 
 use core::num::NonZeroUsize;
 
@@ -11,17 +11,19 @@ pub struct ConnectionSlotLimits {
     connection: ConnectionLimits,
     decoder: DecoderLimits,
     io: IoLimits,
+    transport: TransportLimits,
     publication: PublicationLimits,
     outcome_bytes: RetainedBytes,
     operation_capacity: NonZeroUsize,
 }
 
 impl ConnectionSlotLimits {
-    /// Creates coherent policy, decoding, I/O, and publication bounds.
+    /// Creates coherent policy, decoding, I/O, transport, and publication bounds.
     pub fn new(
         connection: ConnectionLimits,
         decoder: DecoderLimits,
         io: IoLimits,
+        transport: TransportLimits,
         publication: PublicationLimits,
     ) -> Result<Self, ConnectionSlotLimitsError> {
         let operations = u64::try_from(connection.max_operations())
@@ -38,6 +40,7 @@ impl ConnectionSlotLimits {
             connection,
             decoder,
             io,
+            transport,
             publication,
             outcome_bytes,
             operation_capacity,
@@ -72,6 +75,16 @@ impl ConnectionSlotLimits {
 
     pub(crate) const fn io_chunk_bytes(self) -> NonZeroUsize {
         self.io.chunk_bytes
+    }
+
+    /// Returns the total per-connection transport retained-memory bound.
+    pub const fn transport_retained_bytes(self) -> RetainedBytes {
+        self.transport.retained_bytes
+    }
+
+    /// Returns the transport-construction and runtime retained-memory limits.
+    pub const fn transport_limits(self) -> TransportLimits {
+        self.transport
     }
 
     pub(crate) const fn timers(self) -> TimerLimits {
@@ -121,6 +134,24 @@ impl DecoderLimits {
 pub struct IoLimits {
     operations: NonZeroUsize,
     chunk_bytes: NonZeroUsize,
+}
+
+/// Per-connection transport-adapter retained-memory bound.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransportLimits {
+    retained_bytes: RetainedBytes,
+}
+
+impl TransportLimits {
+    /// Creates an aggregate bound enforced during adapter construction and progression.
+    pub const fn new(retained_bytes: RetainedBytes) -> Self {
+        Self { retained_bytes }
+    }
+
+    /// Returns the aggregate adapter-owned retained-memory bound.
+    pub const fn retained_bytes(self) -> RetainedBytes {
+        self.retained_bytes
+    }
 }
 
 impl IoLimits {

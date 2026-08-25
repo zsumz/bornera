@@ -1,7 +1,7 @@
 //! Fixed-size commands fenced to one exact connection-set generation.
 
 use bornera_core::{OperationId, RetainedBytes};
-use calandria::Retained;
+use calandria::{Deadline, Retained};
 
 use crate::ConnectionToken;
 
@@ -25,6 +25,8 @@ pub enum ConnectionCommand {
     BeginDrain {
         /// Exact set generation authorized by the sender.
         connection: ConnectionToken,
+        /// Absolute bound for draining plus transport-local graceful shutdown.
+        deadline: Deadline,
     },
     /// Forces requested closure of one exact connection lifetime.
     Close {
@@ -38,7 +40,7 @@ impl ConnectionCommand {
         match self {
             Self::OpenAdmission { connection }
             | Self::Cancel { connection, .. }
-            | Self::BeginDrain { connection }
+            | Self::BeginDrain { connection, .. }
             | Self::Close { connection } => connection,
         }
     }

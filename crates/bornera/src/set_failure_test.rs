@@ -3,9 +3,8 @@
 use std::convert::Infallible;
 use std::error::Error;
 use std::io;
-use std::net::{SocketAddr, TcpListener};
+use std::net::TcpListener;
 use std::num::NonZeroUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use bornera_core::{
     ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId, LaneId, MatchKey,
@@ -14,13 +13,12 @@ use bornera_core::{
 use calandria::{ResourceOwnerId, Retained, Span, TimerOwnerId};
 use calandria_mio::MioError;
 
+use crate::set_connect_test::{RecordSocketAttempt, reset_socket_attempt, socket_attempted};
 use crate::{
     ConnectError, ConnectionConfig, ConnectionIdentity, ConnectionRecoveryError, ConnectionSet,
     ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, EngineError,
-    InboundClassifier, IoLimits, OwnerFailure, PublicationLimits,
+    InboundClassifier, IoLimits, OwnerFailure, PublicationLimits, TransportLimits,
 };
-
-static SOCKET_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 
 #[test]
 fn full_set_rejects_before_acquiring_another_socket() -> Result<(), Box<dyn Error>> {
@@ -30,24 +28,19 @@ fn full_set_rejects_before_acquiring_another_socket() -> Result<(), Box<dyn Erro
         ConnectionSetLimits::new(nz(1)?, nz(1)?, nz(2)?, nz(2)?, nz(1)?),
     )?;
     let _first = connect_fixture(&mut set, &listener, 1)?;
-    SOCKET_ATTEMPTED.store(false, Ordering::Relaxed);
+    reset_socket_attempt();
 
     let result = set.connect_with(
         connection_config(listener.local_addr()?, 2, 12, 22),
         slot_limits()?,
         Decoder,
         Classifier,
-        record_socket_attempt,
+        RecordSocketAttempt,
     );
 
     assert!(matches!(result, Err(ConnectError::ResourceAdmission)));
-    assert!(!SOCKET_ATTEMPTED.load(Ordering::Relaxed));
+    assert!(!socket_attempted());
     Ok(())
-}
-
-fn record_socket_attempt(_address: SocketAddr) -> io::Result<crate::PlaintextTransport> {
-    SOCKET_ATTEMPTED.store(true, Ordering::Relaxed);
-    Err(io::Error::other("capacity check acquired a socket"))
 }
 
 #[test]
@@ -230,6 +223,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         core,
         DecoderLimits::new(RetainedBytes::new(8), RetainedBytes::new(8)),
         IoLimits::new(nz(2)?, nz(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nz(4)?),
     )?)
 }

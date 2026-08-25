@@ -10,9 +10,10 @@ use std::{
 };
 
 use bornera::{
-    ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
-    EngineCommitError, EngineError, EngineInvariant, InboundClassifier, IoLimits, OutboundFrame,
-    OwnerFailure, PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
+    ConnectionConfig, ConnectionEvent, ConnectionIdentity, ConnectionSetConfig,
+    ConnectionSlotLimits, DecoderLimits, EngineCommitError, EngineError, EngineInvariant,
+    InboundClassifier, IoLimits, OutboundFrame, OwnerFailure, PublicationLimits,
+    StandaloneConnection, StandaloneConnectionConfig, TransportLimits,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
@@ -79,7 +80,7 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
 
     assert_owner_failed(&engine.open_admission())?;
     assert_owner_failed(&engine.cancel(OperationId::new(99)))?;
-    assert_owner_failed(&engine.begin_drain())?;
+    assert_owner_failed(&engine.begin_drain(Deadline::at(Moment::from_nanos(100))))?;
     assert_owner_failed(&engine.finalize(CloseReason::Requested))?;
     assert_owner_failed(&engine.poll_io(Span::ZERO))?;
     assert_owner_failed(&engine.turn_component(Moment::ORIGIN))?;
@@ -128,7 +129,13 @@ fn fatal_failure_during_a_turn_cannot_look_like_clean_stop() -> Result<(), Box<d
         .try_recover()
         .map_err(|_| std::io::Error::other("turn failure rejected recovery"))?;
     assert_eq!(report.reason, OwnerFailure::OwnerInvariant);
-    assert_eq!(report.events.len(), 3);
+    assert!(matches!(
+        report.events.as_slice(),
+        [
+            ConnectionEvent::TransportOpened { sequence: 1, .. },
+            ConnectionEvent::Closing { sequence: 2, .. }
+        ]
+    ));
     join(server)?;
     Ok(())
 }
@@ -234,6 +241,7 @@ fn engine_parts(
         connection,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
         IoLimits::new(four, four),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(lifecycle),
     )?;
     let identity = ConnectionIdentity::new(

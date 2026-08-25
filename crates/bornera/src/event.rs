@@ -7,25 +7,27 @@ use calandria::{Retained, RetainedBytes};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ConnectionEvent {
-    /// The private transport capability completed establishment.
+    /// The transport became ready to exchange application bytes.
+    ///
+    /// Protocol negotiation and regular operation admission remain caller-owned.
     TransportOpened {
         /// Monotonic event sequence within this engine.
         sequence: u64,
-        /// Exact established socket lifetime.
+        /// Exact established transport lifetime.
         epoch: ConnectionEpoch,
     },
     /// The protocol session owner opened regular operation admission.
     AdmissionOpened {
         /// Monotonic event sequence within this engine.
         sequence: u64,
-        /// Exact session-bearing socket lifetime.
+        /// Exact session-bearing transport lifetime.
         epoch: ConnectionEpoch,
     },
     /// Core policy began terminal closure.
     Closing {
         /// Monotonic event sequence within this engine.
         sequence: u64,
-        /// Exact closing socket lifetime.
+        /// Exact closing transport lifetime.
         epoch: ConnectionEpoch,
         /// Mechanical reason retained by the fixed epoch.
         reason: CloseReason,
@@ -34,7 +36,7 @@ pub enum ConnectionEvent {
     Closed {
         /// Monotonic event sequence within this engine.
         sequence: u64,
-        /// Exact closed socket lifetime.
+        /// Exact closed transport lifetime.
         epoch: ConnectionEpoch,
         /// Mechanical reason retained by the fixed epoch.
         reason: CloseReason,
@@ -52,7 +54,7 @@ impl ConnectionEvent {
         }
     }
 
-    /// Returns the exact socket lifetime that produced the edge.
+    /// Returns the exact transport lifetime that produced the edge.
     pub const fn epoch(self) -> ConnectionEpoch {
         match self {
             Self::TransportOpened { epoch, .. }

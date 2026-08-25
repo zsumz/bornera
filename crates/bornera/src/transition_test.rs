@@ -3,15 +3,16 @@
 use std::{error::Error, net::TcpListener, num::NonZeroUsize};
 
 use bornera_core::{
-    ConnectionEpoch, ConnectionId, ConnectionLimits, ConnectionPhase, Deadline, EndpointId,
-    FrameDecoder, LaneId, MatchKey, MatchKeySpace, Moment, OperationOptions, ReserveError,
+    ConnectionEpoch, ConnectionId, ConnectionLimits, ConnectionPhase, Deadline, Delivery,
+    EndpointId, FrameDecoder, LaneId, MatchKey, MatchKeySpace, Moment, OperationOptions,
+    ReserveError,
 };
 use calandria::{Readiness, ResourceOwnerId, Retained, RetainedBytes, TimerOwnerId};
 
 use crate::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
     EngineCommitError, EngineError, InboundClassifier, IoLimits, OutboundFrame, OwnerFailure,
-    PublicationLimits, StandaloneConnection, StandaloneConnectionConfig,
+    PublicationLimits, StandaloneConnection, StandaloneConnectionConfig, TransportLimits,
 };
 
 #[derive(Debug)]
@@ -88,11 +89,11 @@ fn cleanup_failure_keeps_policy_closing_and_never_publishes_closed() -> Result<(
 #[test]
 fn pending_connect_clears_cached_completion_readiness() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let mut transport = crate::PlaintextTransport::connect(listener.local_addr()?)?;
+    let mut transport = crate::TcpTransport::connect(listener.local_addr()?)?;
     transport.observe(Readiness::WRITABLE.union(Readiness::ERROR));
-    assert!(transport.can_finish_connect());
+    assert!(transport.can_establish());
     transport.clear_connect();
-    assert!(!transport.can_finish_connect());
+    assert!(!transport.can_establish());
     Ok(())
 }
 
@@ -168,6 +169,55 @@ fn commit_observing_core_poison_returns_affine_ownership() -> Result<(), Box<dyn
 }
 
 #[test]
+fn accepted_owner_failure_preserves_operation_and_frame_for_recovery() -> Result<(), Box<dyn Error>>
+{
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let mut connection = connection(listener.local_addr()?)?;
+    let first = connection.reserve(Moment::ORIGIN, options())?;
+    connection.commit(first, OutboundFrame::copy_from_slice(&[7])?)?;
+    let entry = connection.set.entry_mut(connection.connection)?;
+    let duplicate = entry
+        .slot
+        .deadlines
+        .first()
+        .copied()
+        .ok_or_else(|| std::io::Error::other("first operation retained no deadline"))?;
+    entry.slot.deadlines.push(duplicate);
+
+    let permit = connection.reserve(Moment::ORIGIN, options())?;
+    let expected = permit.operation_id();
+    let Err(error) = connection.commit(permit, OutboundFrame::copy_from_slice(&[9])?) else {
+        return Err(std::io::Error::other("divergent deadline index accepted effects").into());
+    };
+    let accepted = match error {
+        EngineCommitError::AcceptedOwnerFailure { operation, source } => {
+            assert!(matches!(
+                source,
+                EngineError::Invariant(crate::EngineInvariant::DeadlineIndexCapacity)
+            ));
+            operation
+        }
+        other => return Err(std::io::Error::other(other.to_string()).into()),
+    };
+    assert_eq!(accepted, expected);
+
+    let report = connection
+        .try_recover()
+        .map_err(|_| std::io::Error::other("accepted failure rejected recovery"))?;
+    let recovered = report
+        .operations
+        .iter()
+        .find(|operation| operation.operation == expected)
+        .ok_or_else(|| std::io::Error::other("accepted operation missing from recovery"))?;
+    assert_eq!(recovered.delivery, Delivery::NotSent);
+    assert_eq!(
+        recovered.frame.as_ref().map(OutboundFrame::as_bytes),
+        Some(&[9][..])
+    );
+    Ok(())
+}
+
+#[test]
 fn outcome_capacity_rejection_rolls_back_the_new_core_permit() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let mut connection = connection(listener.local_addr()?)?;
@@ -213,6 +263,7 @@ fn connection(
         core,
         DecoderLimits::new(RetainedBytes::new(16), RetainedBytes::new(16)),
         IoLimits::new(two, two),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(two),
     )?;
     let identity = ConnectionIdentity::new(

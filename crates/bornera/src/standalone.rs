@@ -1,5 +1,7 @@
 //! Capacity-one convenience wrapper around the shared-selector owner.
 
+mod connect;
+
 use bornera_core::{
     CancelOutcome, CloseReason, FrameDecoder, InputDisposition, OperationId, OperationOptions,
     OperationPermit,
@@ -7,42 +9,31 @@ use bornera_core::{
 use calandria::{Duty, EventBatchDrain, Moment, Next, Retained, Span, Turn, WaitOutcome};
 
 use crate::{
-    ConnectError, ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
-    ConnectionSet, ConnectionSetLimits, ConnectionSetSnapshot, ConnectionSlotLimits,
-    ConnectionSlotSnapshot, ConnectionToken, EngineCommitError, EngineError, EngineInvariant,
-    EngineOutcome, InboundClassifier, OutboundFrame, OwnerFailure, StandaloneConnectionConfig,
+    ConnectionAccessError, ConnectionCommitError, ConnectionEvent, ConnectionPort,
+    ConnectionPulseHandle, ConnectionSet, ConnectionSetSnapshot, ConnectionSlotSnapshot,
+    ConnectionToken, EngineCommitError, EngineError, EngineInvariant, EngineOutcome,
+    InboundClassifier, OutboundFrame, OwnerFailure, RegisteredTransport, TcpTransport,
     TransportState,
 };
 
 /// Dedicated capacity-one owner implemented by the same bounded connection set.
 #[derive(Debug)]
-pub struct StandaloneConnection<D, C>
+pub struct StandaloneConnection<D, C, T = TcpTransport>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
-    pub(crate) set: ConnectionSet<D, C>,
+    pub(crate) set: ConnectionSet<D, C, T>,
     pub(crate) connection: ConnectionToken,
 }
 
-impl<D, C> StandaloneConnection<D, C>
+impl<D, C, T> StandaloneConnection<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
-    /// Begins one exact nonblocking connection in a capacity-one set.
-    pub fn connect(
-        config: StandaloneConnectionConfig,
-        limits: ConnectionSlotLimits,
-        decoder: D,
-        classifier: C,
-    ) -> Result<Self, ConnectError<D::Error>> {
-        let set_limits = ConnectionSetLimits::standalone(limits);
-        let mut set = ConnectionSet::new(config.set(), set_limits).map_err(ConnectError::Mio)?;
-        let connection = set.connect(config.connection(), limits, decoder, classifier)?;
-        Ok(Self { set, connection })
-    }
-
     /// Returns the generation-fenced identity of the sole connection.
     pub const fn token(&self) -> ConnectionToken {
         self.connection
@@ -56,6 +47,11 @@ where
     /// Creates an independent coalesced wake domain for the owned selector.
     pub fn wake_handle(&self) -> calandria::WakeHandle {
         self.set.wake_handle()
+    }
+
+    /// Creates an acknowledgement-free notification domain for the owned selector.
+    pub fn pulse_handle(&self) -> ConnectionPulseHandle {
+        self.set.pulse_handle()
     }
 
     /// Reserves bounded operation ownership.
@@ -74,6 +70,9 @@ where
     }
 
     /// Atomically transfers a permit and complete frame to write ownership.
+    ///
+    /// An accepted-owner failure still carries the exact accepted operation. It must not
+    /// be retried, and this owner must then be recovered.
     pub fn commit(
         &mut self,
         permit: OperationPermit,
@@ -106,14 +105,17 @@ where
             .map_err(standalone_error)
     }
 
-    /// Begins ordered draining synchronously.
-    pub fn begin_drain(&mut self) -> Result<InputDisposition, EngineError> {
+    /// Drains operations plus transport egress synchronously through one absolute deadline.
+    pub fn begin_drain(
+        &mut self,
+        deadline: calandria::Deadline,
+    ) -> Result<InputDisposition, EngineError> {
         self.set
-            .begin_drain(self.connection)
+            .begin_drain(self.connection, deadline)
             .map_err(standalone_error)
     }
 
-    /// Requests mechanical closure synchronously.
+    /// Forces mechanical closure, preempting any transport-local graceful shutdown.
     pub fn finalize(&mut self, reason: CloseReason) -> Result<InputDisposition, EngineError> {
         self.set
             .finalize(self.connection, reason)
@@ -148,7 +150,7 @@ where
         self.set.snapshot()
     }
 
-    /// Returns whether the TCP capability completed establishment.
+    /// Returns whether the application transport completed establishment.
     pub fn is_transport_open(&self) -> Result<bool, EngineError> {
         self.set
             .is_transport_open(self.connection)
@@ -199,11 +201,12 @@ fn standalone_error(error: ConnectionAccessError) -> EngineError {
     }
 }
 
-impl<D, C> Duty for StandaloneConnection<D, C>
+impl<D, C, T> Duty for StandaloneConnection<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     type Error = EngineError;
 

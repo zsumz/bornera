@@ -7,7 +7,8 @@ use calandria::Retained;
 
 use crate::{
     ConnectionEvent, EngineError, EngineOutcome, InboundClassifier, OutboundFrame,
-    StandaloneConnection,
+    RegisteredTransport, StandaloneConnection, TcpTransport, TransportDiagnostic,
+    TransportPressure,
 };
 
 /// Mechanical category explaining why normal owner finalization was abandoned.
@@ -37,7 +38,7 @@ impl From<&EngineError> for OwnerFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub struct RecoveryReport<F, R> {
-    /// Exact failed socket lifetime.
+    /// Exact failed transport lifetime.
     pub epoch: bornera_core::ConnectionEpoch,
     /// Mechanical fatal-owner category.
     pub reason: OwnerFailure,
@@ -49,21 +50,31 @@ pub struct RecoveryReport<F, R> {
     pub outcomes: Vec<EngineOutcome<R>>,
     /// Lifecycle edges published before recovery but not yet drained.
     pub events: Vec<ConnectionEvent>,
-    /// Policy, frame, or transport cleanup ownership disagreed.
+    /// Last bounded transport diagnostic observed before recovery.
+    pub transport_diagnostic: Option<TransportDiagnostic>,
+    /// Last accounted pressure, or `None` before observation or after ownership was lost.
+    pub transport_pressure: Option<TransportPressure>,
+    /// Stable retained-memory bound declared by the adapter, when observed.
+    pub transport_retained_limit: Option<calandria::RetainedBytes>,
+    /// Configured slot ceiling for adapter-owned memory, when the slot remained identifiable.
+    pub transport_retained_ceiling: Option<calandria::RetainedBytes>,
+    /// Policy, frame, transport accounting, or cleanup ownership disagreed.
     pub ownership_diverged: bool,
 }
 
 /// Rejected recovery attempt that still owns the healthy connection.
-pub struct RecoveryWhileRunning<D, C>
+pub struct RecoveryWhileRunning<D, C, T = TcpTransport>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
-    connection: Box<StandaloneConnection<D, C>>,
+    connection: Box<StandaloneConnection<D, C, T>>,
 }
 
-impl<D, C> fmt::Debug for RecoveryWhileRunning<D, C>
+impl<D, C, T> fmt::Debug for RecoveryWhileRunning<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -72,26 +83,28 @@ where
     }
 }
 
-impl<D, C> RecoveryWhileRunning<D, C>
+impl<D, C, T> RecoveryWhileRunning<D, C, T>
 where
     D: FrameDecoder,
+    T: RegisteredTransport,
 {
     /// Returns immutable access to the still-running capacity-one owner.
-    pub fn connection(&self) -> &StandaloneConnection<D, C> {
+    pub fn connection(&self) -> &StandaloneConnection<D, C, T> {
         &self.connection
     }
 
     /// Recovers the still-running capacity-one owner intact.
-    pub fn into_connection(self) -> StandaloneConnection<D, C> {
+    pub fn into_connection(self) -> StandaloneConnection<D, C, T> {
         *self.connection
     }
 }
 
-impl<D, C> StandaloneConnection<D, C>
+impl<D, C, T> StandaloneConnection<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     /// Tries to consume a failed connection and transfer all recoverable ownership.
     ///
@@ -99,12 +112,15 @@ where
     /// resumed or reused after successful recovery.
     pub fn try_recover(
         self,
-    ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, RecoveryWhileRunning<D, C>> {
-        let failure = self
-            .set
-            .entry(self.connection)
-            .ok()
-            .and_then(|entry| entry.slot.state.failure());
+    ) -> Result<RecoveryReport<OutboundFrame, D::Frame>, RecoveryWhileRunning<D, C, T>> {
+        let failure = match self.set.entry(self.connection) {
+            Ok(entry) => entry.slot.state.failure(),
+            Err(_) => Some(
+                self.set
+                    .owner_failure
+                    .unwrap_or(OwnerFailure::OwnerInvariant),
+            ),
+        };
         let Some(reason) = failure else {
             return Err(RecoveryWhileRunning {
                 connection: Box::new(self),
@@ -127,15 +143,26 @@ where
     fn recover_owned(mut self, reason: OwnerFailure) -> RecoveryReport<OutboundFrame, D::Frame> {
         let resource = self.connection.resource();
         let epoch = self.connection.epoch();
-        let (poller, resources) = (&mut self.set.poller, &mut self.set.resources);
-        let Ok((_, entry)) = resources.get_mut(resource) else {
+        let (cleanup_failed, pressure_failed) = {
+            let (poller, resources) = (&mut self.set.poller, &mut self.set.resources);
+            let Ok((_, entry)) = resources.get_mut(resource) else {
+                return empty_diverged(epoch, reason);
+            };
+            if let Some(transport) = entry.transport.as_mut() {
+                let failed = poller.deregister(transport, resource).is_err();
+                let pressure_failed = entry.slot.capture_transport_pressure(transport).is_err();
+                (failed, pressure_failed)
+            } else {
+                (false, false)
+            }
+        };
+        self.set.ready.retain(|token| *token != resource);
+        let Ok((_, mut entry)) = self.set.resources.remove(resource) else {
             return empty_diverged(epoch, reason);
         };
-        let cleanup_failed = entry
-            .transport
-            .as_mut()
-            .is_some_and(|transport| poller.deregister(transport, resource).is_err());
-        entry.slot.recover_owned(reason, cleanup_failed)
+        entry
+            .slot
+            .recover_owned(reason, cleanup_failed || pressure_failed)
     }
 }
 
@@ -170,7 +197,13 @@ where
             unmatched_writes: recovery.unmatched_writes,
             outcomes,
             events,
-            ownership_diverged: recovery.ownership_diverged || cleanup_failed,
+            transport_diagnostic: self.transport_diagnostic,
+            transport_pressure: self.transport_pressure,
+            transport_retained_limit: self.transport_retained_limit,
+            transport_retained_ceiling: Some(self.limits.transport_retained_bytes()),
+            ownership_diverged: recovery.ownership_diverged
+                || cleanup_failed
+                || self.transport_contract_diverged,
         }
     }
 }
@@ -186,6 +219,10 @@ fn empty_diverged<F, R>(
         unmatched_writes: Vec::new(),
         outcomes: Vec::new(),
         events: Vec::new(),
+        transport_diagnostic: None,
+        transport_pressure: None,
+        transport_retained_limit: None,
+        transport_retained_ceiling: None,
         ownership_diverged: true,
     }
 }

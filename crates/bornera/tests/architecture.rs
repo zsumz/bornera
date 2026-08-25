@@ -26,7 +26,8 @@ fn engine_and_waiter_use_calandria_host_contracts() {
 }
 
 #[test]
-fn mio_tcp_remains_a_private_native_capability() -> Result<(), Box<dyn Error>> {
+fn selector_ownership_remains_private_and_connector_callbacks_stay_absent()
+-> Result<(), Box<dyn Error>> {
     let root = repository_root()?;
     let manifest = fs::read_to_string(root.join("crates/bornera/Cargo.toml"))?;
     let facade = fs::read_to_string(root.join("crates/bornera/src/lib.rs"))?;

@@ -90,7 +90,10 @@ fn session_correlated_requests_and_acks_zero_share_one_healthy_epoch() -> Result
             )
     }));
     assert_eq!(engine.snapshot()?.transport, TransportState::Open);
-    assert_eq!(engine.begin_drain()?, InputDisposition::Applied);
+    assert_eq!(
+        engine.begin_drain(Deadline::at(Moment::from_nanos(1_000)))?,
+        InputDisposition::Applied
+    );
     assert_eq!(
         engine.snapshot()?.connection.close_reason,
         Some(CloseReason::Drained)

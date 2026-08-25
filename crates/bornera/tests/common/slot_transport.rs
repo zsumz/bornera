@@ -2,7 +2,10 @@
 
 use std::io;
 
-use bornera::{ConnectProgress, SlotTransport, TcpSocketPolicy};
+use bornera::{
+    SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
+    TransportPressure, TransportProgress,
+};
 use calandria::Interest;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -142,34 +145,55 @@ impl io::Write for TestTransport {
 }
 
 impl SlotTransport for TestTransport {
-    fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
+    fn drive_establishment(
+        &mut self,
+        _policy: TcpSocketPolicy,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
         if self.connect_readiness == ConnectReadiness::Once {
             self.connect_readiness = ConnectReadiness::Consumed;
         }
-        match self.connect {
-            ConnectBehavior::Opened => {
-                self.open = true;
-                Ok(ConnectProgress::Opened)
-            }
-            ConnectBehavior::AlreadyOpen => {
-                self.open = true;
-                Ok(ConnectProgress::AlreadyOpen)
-            }
-            ConnectBehavior::Failed => Err(io::Error::from(io::ErrorKind::ConnectionRefused)),
+        if self.connect == ConnectBehavior::Failed {
+            return Err(TransportError::from_io(
+                TransportFailurePhase::Connect,
+                io::Error::from(io::ErrorKind::ConnectionRefused),
+            ));
         }
-    }
-
-    fn apply_policy(&mut self, _policy: TcpSocketPolicy) -> io::Result<()> {
         self.policy_applications = self.policy_applications.saturating_add(1);
         if self.policy_failure {
-            Err(io::Error::from(io::ErrorKind::PermissionDenied))
-        } else {
-            Ok(())
+            return Err(TransportError::from_io(
+                TransportFailurePhase::SocketPolicy,
+                io::Error::from(io::ErrorKind::PermissionDenied),
+            ));
         }
+        self.open = true;
+        Ok(TransportProgress::operation())
     }
 
-    fn can_finish_connect(&self) -> bool {
+    fn drive_transport(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::IDLE)
+    }
+
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        Ok(TransportProgress::operation())
+    }
+
+    fn can_establish(&self) -> bool {
         self.connect_readiness != ConnectReadiness::Consumed
+    }
+
+    fn has_transport_work(&self) -> bool {
+        false
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        true
     }
 
     fn is_open(&self) -> bool {
@@ -190,6 +214,14 @@ impl SlotTransport for TestTransport {
         } else {
             Interest::READABLE
         }
+    }
+
+    fn pressure(&self) -> TransportPressure {
+        TransportPressure::ZERO
+    }
+
+    fn pressure_limit(&self) -> bornera::TransportLimits {
+        bornera::TransportLimits::new(bornera_core::RetainedBytes::ZERO)
     }
 
     fn clear_read(&mut self) {}

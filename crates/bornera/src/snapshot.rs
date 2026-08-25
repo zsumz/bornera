@@ -6,19 +6,19 @@ use bornera_core::ConnectionSnapshot;
 use calandria::{MailboxSnapshot, ResourceTableSnapshot, RetainedBytes};
 use calandria_mio::MioPollerSnapshot;
 
-use crate::OwnerFailure;
+use crate::{OwnerFailure, TransportPressure};
 
-/// Current physical state of one private plaintext capability.
+/// Current physical state of one registered transport capability.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum TransportState {
-    /// Nonblocking connect completion is pending.
+    /// Application transport establishment, including any handshake, is pending.
     Connecting,
-    /// The TCP capability is established.
+    /// Socket policy and complete application transport establishment succeeded.
     Open,
-    /// Core policy requested physical teardown.
+    /// Core policy requested transport teardown.
     Closing,
-    /// The exact connection epoch owns no live TCP capability.
+    /// The exact connection epoch owns no live registered transport.
     Closed,
 }
 
@@ -30,12 +30,44 @@ pub enum TransportFailurePhase {
     Connect,
     /// Post-connect TCP socket option application.
     SocketPolicy,
+    /// Transport-specific establishment, such as a TLS handshake.
+    Establishment,
+    /// Transport-local ingress processing outside application reads.
+    TransportRead,
+    /// Transport-local egress processing outside application writes.
+    TransportWrite,
     /// Established-stream read.
     Read,
     /// Established-stream write.
     Write,
+    /// Graceful transport shutdown progression.
+    Shutdown,
+    /// Transport retained-memory observation.
+    Pressure,
     /// Selector registration, reregistration, or deregistration.
     Readiness,
+}
+
+/// Provider-neutral category for one retained transport failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TransportFailureKind {
+    /// Native I/O or socket policy failed.
+    Io,
+    /// Transport framing or cryptographic protocol validation failed.
+    Protocol,
+    /// Peer certificate validation failed.
+    Certificate,
+    /// Logical server-name validation failed.
+    ServerName,
+    /// The transport ended without its required authenticated close signal.
+    Truncated,
+    /// A configured transport-memory bound was exceeded.
+    Capacity,
+    /// A bounded transport phase reached its absolute deadline.
+    TimedOut,
+    /// A safe transport implementation violated its public contract.
+    Contract,
 }
 
 /// Bounded operating-system diagnostic without retaining an allocation.
@@ -44,19 +76,46 @@ pub enum TransportFailurePhase {
 pub struct TransportDiagnostic {
     /// Transport operation that failed.
     pub phase: TransportFailurePhase,
+    /// Provider-neutral failure category.
+    pub failure: TransportFailureKind,
     /// Portable I/O error category.
     pub kind: io::ErrorKind,
     /// Platform error code when the operating system supplied one.
     pub raw_os_error: Option<i32>,
+    /// Bounded provider-specific code, such as a TLS alert, when available.
+    pub code: Option<u32>,
 }
 
 impl TransportDiagnostic {
+    /// Creates a bounded provider-neutral transport diagnostic.
+    pub const fn new(
+        phase: TransportFailurePhase,
+        failure: TransportFailureKind,
+        kind: io::ErrorKind,
+        code: Option<u32>,
+    ) -> Self {
+        Self {
+            phase,
+            failure,
+            kind,
+            raw_os_error: None,
+            code,
+        }
+    }
+
     pub(crate) fn from_io(phase: TransportFailurePhase, error: &io::Error) -> Self {
         Self {
             phase,
+            failure: TransportFailureKind::Io,
             kind: error.kind(),
             raw_os_error: error.raw_os_error(),
+            code: None,
         }
+    }
+
+    pub(crate) const fn in_phase(mut self, phase: TransportFailurePhase) -> Self {
+        self.phase = phase;
+        self
     }
 }
 
@@ -70,8 +129,18 @@ pub struct ConnectionSlotSnapshot {
     pub owner_failure: Option<OwnerFailure>,
     /// Current private transport lifecycle.
     pub transport: TransportState,
+    /// Whether the host may release the capability and confirm physical closure.
+    pub transport_release_ready: bool,
+    /// Absolute bound while ordered drain or transport-local shutdown is pending.
+    pub shutdown_deadline: Option<calandria::Deadline>,
     /// Most recently retained mechanical transport failure.
     pub transport_diagnostic: Option<TransportDiagnostic>,
+    /// Last observed transport-memory pressure, or `None` before binding an adapter.
+    pub transport_pressure: Option<TransportPressure>,
+    /// Stable retained-memory bound declared by the bound adapter, if observed.
+    pub transport_retained_limit: Option<RetainedBytes>,
+    /// Configured slot ceiling for any adapter-owned retained-memory bound.
+    pub transport_retained_ceiling: RetainedBytes,
     /// Complete frames retained by the write owner.
     pub queued_write_frames: usize,
     /// Complete-frame memory retained by the write owner.

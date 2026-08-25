@@ -27,7 +27,8 @@ impl TcpKeepalivePolicy {
         }
     }
 
-    pub(crate) const fn idle(self) -> Span {
+    /// Returns the portable idle duration before keepalive probes begin.
+    pub const fn idle(self) -> Span {
         self.idle
     }
 }
@@ -61,11 +62,13 @@ impl TcpSocketPolicy {
         self
     }
 
-    pub(crate) const fn no_delay(self) -> TcpNoDelay {
+    /// Returns the configured Nagle policy.
+    pub const fn no_delay(self) -> TcpNoDelay {
         self.no_delay
     }
 
-    pub(crate) const fn keepalive_policy(self) -> Option<TcpKeepalivePolicy> {
+    /// Returns the configured portable keepalive policy, if enabled.
+    pub const fn keepalive_policy(self) -> Option<TcpKeepalivePolicy> {
         self.keepalive
     }
 }

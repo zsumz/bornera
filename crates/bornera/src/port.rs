@@ -1,9 +1,31 @@
 //! Cloneable producer for one exact connection's bounded command mailbox.
 
+use std::io;
+
 use bornera_core::OperationId;
-use calandria::{MailboxSender, TrySendError};
+use calandria::{Deadline, MailboxSender, TrySendError};
 
 use crate::{ConnectionCommand, ConnectionToken};
+
+/// Acknowledgement-free notification handle for one Bornera selector.
+///
+/// Each call reaches the underlying Mio waker. Producers must publish durable state
+/// before pulsing, and the connection-set owner must drain or rescan that state.
+#[derive(Clone, Debug)]
+pub struct ConnectionPulseHandle {
+    pulse: calandria_mio::MioPulseHandle,
+}
+
+impl ConnectionPulseHandle {
+    pub(crate) fn new(pulse: calandria_mio::MioPulseHandle) -> Self {
+        Self { pulse }
+    }
+
+    /// Notifies the selector without a Calandria acknowledgement domain.
+    pub fn pulse(&self) -> io::Result<()> {
+        self.pulse.pulse()
+    }
+}
 
 /// Cross-thread producer bound to one generation-fenced connection.
 ///
@@ -29,7 +51,7 @@ impl ConnectionPort {
         self.connection
     }
 
-    /// Queues a request to open regular admission after establishment.
+    /// Queues admission opening after the caller has established its protocol session.
     pub fn open_admission(&self) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender
             .try_send_control(ConnectionCommand::OpenAdmission {
@@ -45,14 +67,15 @@ impl ConnectionPort {
         })
     }
 
-    /// Queues admission closure followed by ordered draining.
-    pub fn begin_drain(&self) -> Result<(), TrySendError<ConnectionCommand>> {
+    /// Queues admission closure and operation plus transport draining through one deadline.
+    pub fn begin_drain(&self, deadline: Deadline) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender.try_send_control(ConnectionCommand::BeginDrain {
             connection: self.connection,
+            deadline,
         })
     }
 
-    /// Queues forced mechanical closure of the exact epoch.
+    /// Queues forced mechanical closure, preempting transport-local graceful shutdown.
     pub fn close(&self) -> Result<(), TrySendError<ConnectionCommand>> {
         self.sender.try_send_control(ConnectionCommand::Close {
             connection: self.connection,

@@ -6,7 +6,7 @@ use bornera::{
     ConnectionAccessError, ConnectionConfig, ConnectionIdentity, ConnectionSet,
     ConnectionSetConfig, ConnectionSetLimits, ConnectionSlotLimits, DecoderLimits, IoLimits,
     PublicationLimits, SocketPolicyError, TcpKeepalivePolicy, TcpNoDelay, TcpSocketPolicy,
-    TransportState,
+    TransportLimits, TransportState,
 };
 use bornera_core::{
     CloseReason, ConnectionEpoch, ConnectionId, ConnectionLimits, Deadline, EndpointId,
@@ -34,7 +34,7 @@ fn retired_generation_commands_cannot_reach_its_replacement() -> Result<(), Box<
     assert_stale(&set.port(old));
     assert_stale(&set.open_admission(old));
     assert_stale(&set.cancel(old, OperationId::new(99)));
-    assert_stale(&set.begin_drain(old));
+    assert_stale(&set.begin_drain(old, far_deadline()));
     assert_stale(&set.finalize(old, CloseReason::Requested));
     assert_stale(&set.drain_outcomes(old));
     assert_stale(&set.drain_events(old));
@@ -96,8 +96,12 @@ fn explicit_tcp_policy_is_applied_before_transport_open_publication() -> Result<
         Err(SocketPolicyError::ZeroKeepaliveIdle)
     ));
     let listener = TcpListener::bind("127.0.0.1:0")?;
-    let keepalive = TcpKeepalivePolicy::new(Span::from_nanos(60_000_000_000))?;
+    let idle = Span::from_nanos(60_000_000_000);
+    let keepalive = TcpKeepalivePolicy::new(idle)?;
     let policy = TcpSocketPolicy::new(TcpNoDelay::Disabled).keepalive(keepalive);
+    assert_eq!(policy.no_delay(), TcpNoDelay::Disabled);
+    assert_eq!(policy.keepalive_policy(), Some(keepalive));
+    assert_eq!(keepalive.idle(), idle);
     let mut set = connection_set()?;
     let connection = set.connect(
         connection_config(listener.local_addr()?, 10, 20, 30, far_deadline()).socket_policy(policy),
@@ -135,6 +139,7 @@ fn slot_limits() -> Result<ConnectionSlotLimits, Box<dyn Error>> {
         core,
         DecoderLimits::new(RetainedBytes::new(64), RetainedBytes::new(64)),
         IoLimits::new(nz(8)?, nz(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nz(8)?),
     )?)
 }

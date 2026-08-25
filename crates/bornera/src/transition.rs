@@ -5,7 +5,7 @@ use calandria::Retained;
 
 use crate::{
     CloseDirective, ConnectionSlot, DeadlineEntry, DeadlineEvent, EngineError, EngineInvariant,
-    EngineOutcome, InboundClassifier, TransportState,
+    EngineOutcome, InboundClassifier, TransportState, slot::ShutdownState,
 };
 
 impl<D, C> ConnectionSlot<D, C>
@@ -188,8 +188,25 @@ where
         };
         if self.close_request.is_none() {
             retain_first(failure, self.publish_closing(reason));
+            let shutdown = if self.transport_state == TransportState::Open
+                && reason == bornera_core::CloseReason::Drained
+            {
+                self.drain_deadline.take().map_or_else(
+                    || {
+                        retain_first(
+                            failure,
+                            Err(invariant(EngineInvariant::MissingShutdownDeadline)),
+                        );
+                        ShutdownState::Immediate
+                    },
+                    |deadline| ShutdownState::Pending { deadline },
+                )
+            } else {
+                self.drain_deadline = None;
+                ShutdownState::Immediate
+            };
             self.transport_state = TransportState::Closing;
-            self.close_request = Some(CloseDirective::Core(reason));
+            self.close_request = Some(CloseDirective::Core { reason, shutdown });
         }
     }
 }

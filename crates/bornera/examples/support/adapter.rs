@@ -5,7 +5,7 @@ use std::{error::Error, fmt, net::SocketAddr, num::NonZeroUsize};
 use bornera::{
     ConnectionConfig, ConnectionIdentity, ConnectionSetConfig, ConnectionSlotLimits, DecoderLimits,
     InboundClassifier, IoLimits, OutboundFrame, PublicationLimits, StandaloneConnection,
-    StandaloneConnectionConfig,
+    StandaloneConnectionConfig, TransportLimits,
 };
 use bornera_core::{
     ConnectionEpoch, ConnectionId, ConnectionLimits, EndpointId, FrameDecoder, LaneId, MatchKey,
@@ -97,6 +97,7 @@ pub(crate) fn prepared_engine(
         connection,
         DecoderLimits::new(RetainedBytes::new(64), RetainedBytes::new(64)),
         IoLimits::new(nonzero(8)?, nonzero(8)?),
+        TransportLimits::new(RetainedBytes::ZERO),
         PublicationLimits::new(nonzero(8)?),
     )?;
     let identity = ConnectionIdentity::new(

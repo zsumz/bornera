@@ -2,8 +2,13 @@
 
 use std::{collections::VecDeque, io};
 
-use bornera::{ConnectProgress, SlotTransport, TcpSocketPolicy};
+use bornera::{
+    SlotTransport, TcpSocketPolicy, TransportBudget, TransportError, TransportFailurePhase,
+    TransportLimits, TransportPressure, TransportProgress,
+};
 use calandria::Interest;
+
+use crate::{Phase, ShutdownState, transport_pressure};
 
 #[derive(Debug)]
 pub(crate) struct SimTransport {
@@ -13,28 +18,47 @@ pub(crate) struct SimTransport {
     peer_closed: bool,
     write_credit: usize,
     outbound: Vec<u8>,
+    limits: TransportLimits,
     applied_policy: Option<TcpSocketPolicy>,
+    shutdown: ShutdownState,
 }
 
 impl SimTransport {
-    pub(crate) fn new() -> Self {
-        Self {
+    pub(crate) fn new(limits: TransportLimits) -> Result<Self, ()> {
+        let total = usize::try_from(limits.retained_bytes().get()).map_err(|_| ())?;
+        let inbound_limit = total / 2;
+        let outbound_limit = total.saturating_sub(inbound_limit);
+        let mut inbound = VecDeque::new();
+        inbound.try_reserve_exact(inbound_limit).map_err(|_| ())?;
+        let mut outbound = Vec::new();
+        outbound.try_reserve_exact(outbound_limit).map_err(|_| ())?;
+        let pressure = transport_pressure(&inbound, &outbound);
+        if pressure.total() > limits.retained_bytes() {
+            return Err(());
+        }
+        Ok(Self {
             phase: Phase::Connecting,
             connect_ready: false,
-            inbound: VecDeque::new(),
+            inbound,
             peer_closed: false,
             write_credit: 0,
-            outbound: Vec::new(),
+            outbound,
+            limits: TransportLimits::new(pressure.total()),
             applied_policy: None,
-        }
+            shutdown: ShutdownState::NotStarted,
+        })
     }
 
     pub(crate) fn observe_connect_ready(&mut self) {
         self.connect_ready = true;
     }
 
-    pub(crate) fn inject_read(&mut self, bytes: Vec<u8>) {
+    pub(crate) fn inject_read(&mut self, bytes: Vec<u8>) -> Result<(), ()> {
+        if bytes.len() > self.inbound.capacity().saturating_sub(self.inbound.len()) {
+            return Err(());
+        }
         self.inbound.extend(bytes);
+        Ok(())
     }
 
     pub(crate) fn observe_peer_closed(&mut self) {
@@ -50,6 +74,7 @@ impl SimTransport {
         self.connect_ready = false;
         self.inbound.clear();
         self.write_credit = 0;
+        self.shutdown = ShutdownState::Complete;
     }
 
     pub(crate) fn outbound(&self) -> &[u8] {
@@ -94,8 +119,14 @@ impl io::Write for SimTransport {
                 "simulated transport closed",
             ));
         }
-        let written = buffer.len().min(self.write_credit);
+        let available = self.outbound.capacity().saturating_sub(self.outbound.len());
+        let written = buffer.len().min(self.write_credit).min(available);
         if written == 0 {
+            if available == 0 && !buffer.is_empty() {
+                return Err(io::Error::other(
+                    "simulated transport output capacity exhausted",
+                ));
+            }
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
         self.outbound.extend_from_slice(&buffer[..written]);
@@ -109,29 +140,56 @@ impl io::Write for SimTransport {
 }
 
 impl SlotTransport for SimTransport {
-    fn finish_connect(&mut self) -> io::Result<ConnectProgress> {
+    fn drive_establishment(
+        &mut self,
+        policy: TcpSocketPolicy,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
         match self.phase {
-            Phase::Open => Ok(ConnectProgress::AlreadyOpen),
-            Phase::Closed => Err(io::Error::new(
-                io::ErrorKind::NotConnected,
-                "simulated transport closed",
+            Phase::Open => Ok(TransportProgress::IDLE),
+            Phase::Closed => Err(TransportError::from_io(
+                TransportFailurePhase::Connect,
+                io::Error::new(io::ErrorKind::NotConnected, "simulated transport closed"),
             )),
             Phase::Connecting if self.connect_ready => {
                 self.phase = Phase::Open;
                 self.connect_ready = false;
-                Ok(ConnectProgress::Opened)
+                self.applied_policy = Some(policy);
+                Ok(TransportProgress::operation())
             }
-            Phase::Connecting => Ok(ConnectProgress::Pending),
+            Phase::Connecting => Ok(TransportProgress::operation()),
         }
     }
 
-    fn apply_policy(&mut self, policy: TcpSocketPolicy) -> io::Result<()> {
-        self.applied_policy = Some(policy);
-        Ok(())
+    fn drive_transport(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        if self.shutdown != ShutdownState::Flushing {
+            return Ok(TransportProgress::IDLE);
+        }
+        self.shutdown = ShutdownState::Complete;
+        Ok(TransportProgress::new(core::num::NonZeroUsize::MIN, 0, 1))
     }
 
-    fn can_finish_connect(&self) -> bool {
+    fn begin_shutdown(
+        &mut self,
+        _budget: TransportBudget,
+    ) -> Result<TransportProgress, TransportError> {
+        self.shutdown = ShutdownState::Flushing;
+        Ok(TransportProgress::operation())
+    }
+
+    fn can_establish(&self) -> bool {
         self.phase == Phase::Connecting && self.connect_ready
+    }
+
+    fn has_transport_work(&self) -> bool {
+        self.shutdown == ShutdownState::Flushing
+    }
+
+    fn is_shutdown_complete(&self) -> bool {
+        self.shutdown == ShutdownState::Complete
     }
 
     fn is_open(&self) -> bool {
@@ -139,19 +197,33 @@ impl SlotTransport for SimTransport {
     }
 
     fn can_read(&self) -> bool {
-        self.phase == Phase::Open && (!self.inbound.is_empty() || self.peer_closed)
+        self.phase == Phase::Open
+            && self.shutdown == ShutdownState::NotStarted
+            && (!self.inbound.is_empty() || self.peer_closed)
     }
 
     fn can_write(&self) -> bool {
-        self.phase == Phase::Open && self.write_credit != 0
+        self.phase == Phase::Open
+            && self.shutdown == ShutdownState::NotStarted
+            && self.write_credit != 0
     }
 
     fn desired_interest(&self, has_writes: bool) -> Interest {
-        if self.phase == Phase::Connecting || has_writes {
+        if self.shutdown == ShutdownState::Flushing {
+            Interest::WRITABLE
+        } else if self.phase == Phase::Connecting || has_writes {
             Interest::READ_WRITE
         } else {
             Interest::READABLE
         }
+    }
+
+    fn pressure(&self) -> TransportPressure {
+        transport_pressure(&self.inbound, &self.outbound)
+    }
+
+    fn pressure_limit(&self) -> TransportLimits {
+        self.limits
     }
 
     fn clear_read(&mut self) {}
@@ -159,11 +231,4 @@ impl SlotTransport for SimTransport {
     fn clear_write(&mut self) {
         self.write_credit = 0;
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Phase {
-    Connecting,
-    Open,
-    Closed,
 }

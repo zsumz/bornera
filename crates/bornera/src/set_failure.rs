@@ -4,13 +4,14 @@ use bornera_core::FrameDecoder;
 use calandria::{PollReport, Retained, Span};
 use calandria_mio::MioError;
 
-use crate::{ConnectionSet, EngineError, InboundClassifier, OwnerFailure};
+use crate::{ConnectionSet, EngineError, InboundClassifier, OwnerFailure, RegisteredTransport};
 
-impl<D, C> ConnectionSet<D, C>
+impl<D, C, T> ConnectionSet<D, C, T>
 where
     D: FrameDecoder,
     D::Frame: Retained,
     C: InboundClassifier<D::Frame>,
+    T: RegisteredTransport,
 {
     pub(crate) fn poll_selector(&mut self, maximum: Span) -> Result<PollReport, EngineError> {
         self.ensure_owner_running()?;

@@ -1,4 +1,4 @@
-//! Selector-free production state for one exact plaintext connection epoch.
+//! Selector-free production state for one exact application-transport epoch.
 
 use bornera_core::{
     ConnectionCore, FrameDecodeError, FrameDecoder, FrameDriver, OperationId, RetainedBytes,
@@ -7,7 +7,8 @@ use calandria::{Deadline, EventBatch, Retained, TimerQueue, TimerToken};
 
 use crate::{
     ConnectionEvent, ConnectionSlotConfig, ConnectionSlotLimits, EngineOutcome, EngineState,
-    InboundClassifier, OutboundFrame, TcpSocketPolicy, TransportDiagnostic, TransportState,
+    InboundClassifier, OutboundFrame, TcpSocketPolicy, TransportDiagnostic, TransportPressure,
+    TransportState,
 };
 
 /// One selector-free mutable owner for one exact connection epoch.
@@ -34,6 +35,10 @@ where
     pub(crate) io_preference: IoPreference,
     pub(crate) transport_state: TransportState,
     pub(crate) transport_diagnostic: Option<TransportDiagnostic>,
+    pub(crate) transport_pressure: Option<TransportPressure>,
+    pub(crate) transport_retained_limit: Option<RetainedBytes>,
+    pub(crate) transport_contract_diverged: bool,
+    pub(crate) drain_deadline: Option<Deadline>,
     pub(crate) close_request: Option<CloseDirective>,
     pub(crate) state: EngineState,
 }
@@ -76,9 +81,13 @@ where
             event_sequence: 0,
             read_buffer,
             decoder_pending: false,
-            io_preference: IoPreference::Read,
+            io_preference: IoPreference::Transport,
             transport_state: TransportState::Connecting,
             transport_diagnostic: None,
+            transport_pressure: None,
+            transport_retained_limit: None,
+            transport_contract_diverged: false,
+            drain_deadline: None,
             close_request: None,
             state: EngineState::Running,
         })
@@ -105,14 +114,60 @@ pub(crate) struct DeadlineEntry {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IoPreference {
+    Transport,
+    Decode,
     Read,
     Write,
 }
 
+impl IoPreference {
+    pub(crate) const fn next(self) -> Self {
+        match self {
+            Self::Transport => Self::Decode,
+            Self::Decode => Self::Read,
+            Self::Read => Self::Write,
+            Self::Write => Self::Transport,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CloseDirective {
-    Core(bornera_core::CloseReason),
+    Core {
+        reason: bornera_core::CloseReason,
+        shutdown: ShutdownState,
+    },
     Abort,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShutdownState {
+    Immediate,
+    Pending { deadline: Deadline },
+    Started { deadline: Deadline },
+    Complete,
+}
+
+impl CloseDirective {
+    pub(crate) const fn settlement_ready(self) -> bool {
+        matches!(
+            self,
+            Self::Core {
+                shutdown: ShutdownState::Immediate | ShutdownState::Complete,
+                ..
+            } | Self::Abort
+        )
+    }
+
+    pub(crate) const fn shutdown_deadline(self) -> Option<Deadline> {
+        match self {
+            Self::Core {
+                shutdown: ShutdownState::Pending { deadline } | ShutdownState::Started { deadline },
+                ..
+            } => Some(deadline),
+            Self::Core { .. } | Self::Abort => None,
+        }
+    }
 }
 
 pub(crate) fn to_u64(value: usize) -> u64 {
