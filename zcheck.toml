@@ -66,7 +66,7 @@ description = "Validate runtime and behavioral contracts."
 needs = ["test"]
 
 [tasks.package]
-description = "Inspect and smoke-compile both publishable crate archives in release order."
+description = "Inspect and smoke-compile all publishable crate archives in release order."
 run = ["scripts/package-proof.sh"]
 tools = ["cargo"]
 resources = ["cargo-target"]

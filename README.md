@@ -28,6 +28,7 @@
 ```text
 bornera       production connection ownership hosted by Calandria
 bornera-core  deterministic sans-I/O connection policy
+bornera-rustls bounded rustls client transport for production owners
 bornera-sim   deterministic bounded trace replay (currently unpublished)
 ```
 
@@ -71,6 +72,9 @@ accepted operations and bounded transport-local graceful shutdown. Once core
 policy has drained, Bornera progresses the adapter until all retained egress and
 its local close signal leave adapter ownership. Reaching the deadline or calling
 forced finalization releases the physical capability without waiting for a peer.
+For `bornera-rustls`, the connect deadline spans TCP, socket policy, and the TLS
+handshake; `TransportOpened` is published only after the application channel is
+ready and the final handshake flight has left rustls ownership.
 
 ## Crates
 
@@ -78,6 +82,7 @@ forced finalization releases the physical capability without waiting for a peer.
 | --- | --- |
 | `bornera` | Shared-selector production ownership for registered native transports under Calandria hosting |
 | `bornera-core` | Bounded admission, framing, matching, deadlines, delivery certainty, and recovery policy |
+| `bornera-rustls` | Bounded TLS client establishment, encrypted I/O, diagnostics, and graceful close over rustls |
 | `bornera-sim` | Unpublished bounded trace capture, exact replay, and generated policy properties |
 
 The crates begin at the same version and remain lockstepped during pre-alpha.
@@ -89,9 +94,11 @@ Add only the layers you need:
 
 ```toml
 [dependencies]
-bornera = "=0.0.1-rc.2"
-bornera-core = "=0.0.1-rc.2"
+bornera = "=0.0.1-rc.3"
+bornera-core = "=0.0.1-rc.3"
+bornera-rustls = "=0.0.1-rc.3" # when TLS is required
 calandria = { version = "=0.0.1-rc.2", features = ["std"] }
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
 ```
 
 Run either production hosting model from a checkout:
@@ -103,6 +110,8 @@ cargo run -p bornera --example dedicated --locked --offline
 
 Public configuration and host contracts use Bornera-Core and Calandria value
 types, so production consumers should declare all three layers explicitly.
+The optional TLS adapter accepts rustls `ClientConfig` values, so TLS consumers
+also declare compatible `bornera-rustls` and `rustls` dependencies.
 Mailbox success means a command is queued, not applied. The sequenced
 `AdmissionOpened` lifecycle event is the authoritative confirmation that
 regular admission opened.
@@ -126,10 +135,13 @@ latest stable toolchain, macOS, Windows, cargo-deny, selected Miri tests, and a
 workspace coverage report. The production loopback persona covers session
 establishment, correlated request/reply, Kafka-style no-reply writes, partial
 writes at deadline, cancellation on both sides of first write progress, peer
-loss, and explicit owner recovery. DNS ownership, address selection, reconnect
-policy, and optional TLS remain future work. A prerelease version in source is
-not release proof, and package publication must occur in dependency order:
-`bornera-core` before `bornera`.
+loss, and explicit owner recovery. The rustls qualification adds handshake
+read/write alternation, buffered ciphertext, local decrypted plaintext, SNI and
+certificate failures, truncation, graceful close, logical buffer ceilings, and
+connection-local TLS failure isolation. DNS ownership, address selection, and
+reconnect policy remain caller work. A prerelease version in source is not
+release proof, and package publication must occur in dependency order:
+`bornera-core` before `bornera` before `bornera-rustls`.
 
 ## License
 
