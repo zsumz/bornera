@@ -103,7 +103,10 @@ fn connect_deadline_covers_a_stalled_tls_handshake() -> Result<(), Box<dyn Error
         poll_if_needed(&mut owner, turn.next())?;
     }
     assert!(hello_observed);
-    assert!(owner.snapshot()?.transport == TransportState::Connecting);
+    assert!(matches!(
+        owner.snapshot()?.transport,
+        TransportState::Connecting
+    ));
     let _turn = owner.turn_component(Moment::from_nanos(5))?;
     assert_eq!(owner.snapshot()?.transport, TransportState::Closed);
     let events: Vec<_> = owner.drain_events()?.collect();
