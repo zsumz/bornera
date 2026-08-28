@@ -19,6 +19,8 @@ pub enum RustlsDiagnostic {
     Truncated = 4,
     /// Rustls logical input or output exceeded its configured bound.
     Capacity = 5,
+    /// The caller requested an operation outside the session lifecycle.
+    CallerState = 6,
 }
 
 impl RustlsDiagnostic {
@@ -35,6 +37,7 @@ impl RustlsDiagnostic {
             3 => Some(Self::ServerName),
             4 => Some(Self::Truncated),
             5 => Some(Self::Capacity),
+            6 => Some(Self::CallerState),
             _ => None,
         }
     }
@@ -75,5 +78,17 @@ pub(crate) fn truncated_error(phase: TransportFailurePhase) -> TransportError {
         TransportFailureKind::Truncated,
         io::ErrorKind::UnexpectedEof,
         Some(RustlsDiagnostic::Truncated.code()),
+    ))
+}
+
+pub(crate) fn caller_state_error(
+    phase: TransportFailurePhase,
+    kind: io::ErrorKind,
+) -> TransportError {
+    TransportError::new(TransportDiagnostic::new(
+        phase,
+        TransportFailureKind::Contract,
+        kind,
+        Some(RustlsDiagnostic::CallerState.code()),
     ))
 }

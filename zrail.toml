@@ -1,93 +1,234 @@
-schema = 1
 adapters = ["rust"]
-
-[repository]
-roots = [
-  "crates/bornera",
-  "crates/bornera-core",
-  "crates/bornera-rustls",
-  "crates/bornera-sim",
-]
-exclude = []
-workspace_members = "exact"
-nested_git = "deny"
-submodules = "deny"
-symlinks = "inside"
+schema = 1
 
 [dependencies]
+cycles = "deny"
 mode = "locked"
 unassigned_packages = "deny"
-cycles = "deny"
 
 [[dependencies.crate_root]]
 package = "bytebudget"
-root = "bytebudget"
 reason = "The published bytebudget package provides exact aggregate accounting for bounded retained storage."
+root = "bytebudget"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.0.1-rc.1"
 
 [[dependencies.crate_root]]
 package = "calandria"
-root = "calandria"
 reason = "The published Calandria package exposes the calandria library root."
+root = "calandria"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.0.1-rc.2"
 
 [[dependencies.crate_root]]
 package = "calandria-mio"
-root = "calandria_mio"
 reason = "The published calandria-mio package exposes the calandria_mio library root."
+root = "calandria_mio"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.0.1-rc.2"
 
 [[dependencies.crate_root]]
 package = "calandria-sim"
-root = "calandria_sim"
 reason = "The published calandria-sim package exposes the calandria_sim library root."
+root = "calandria_sim"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.0.1-rc.2"
 
 [[dependencies.crate_root]]
 package = "mio"
-root = "mio"
 reason = "The published Mio package exposes the mio library root used for private TCP sources."
+root = "mio"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "1.2.2"
 
 [[dependencies.crate_root]]
 package = "rcgen"
-root = "rcgen"
 reason = "The published rcgen package provides ephemeral TLS identities for loopback qualification."
+root = "rcgen"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.14.8"
 
 [[dependencies.crate_root]]
 package = "rustls"
-root = "rustls"
 reason = "The published rustls package provides the bounded generic TLS client transport."
+root = "rustls"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "=0.23.43"
 
 [[dependencies.crate_root]]
 package = "socket2"
-root = "socket2"
 reason = "The published socket2 package exposes the socket2 library root used for TCP policy."
+root = "socket2"
+
 [dependencies.crate_root.source]
 kind = "registry"
 requirement = "0.6.5"
 
+[[dependency]]
+deny = [
+    "bornera",
+    "bornera-rustls",
+    "bornera-sim",
+]
+from = "bornera-core"
+name = "core-does-not-depend-outward"
+reason = "The deterministic core cannot depend on either adapter package."
+
+[[layer]]
+may_depend_on = []
+name = "core"
+packages = ["bornera-core"]
+reason = "Deterministic connection policy remains below production and simulation adapters."
+
+[layer.dependencies]
+external = "locked"
+
+[[layer]]
+may_depend_on = ["core"]
+name = "production"
+packages = ["bornera"]
+reason = "The native duty interprets deterministic core policy through Calandria and private Mio capabilities."
+
+[layer.dependencies]
+external = "locked"
+
+[[layer]]
+may_depend_on = [
+    "core",
+    "production",
+]
+name = "simulation"
+packages = ["bornera-sim"]
+reason = "Deterministic replay drives the production selector-free connection slot through simulated Calandria time and transport capabilities."
+
+[layer.dependencies]
+external = "locked"
+
+[[layer]]
+may_depend_on = [
+    "core",
+    "production",
+]
+name = "tls-adapter"
+packages = ["bornera-rustls"]
+reason = "The optional TLS package provides a bounded client transport and a socket-free server session for external owners."
+
+[layer.dependencies]
+external = "locked"
+
+[repository]
+exclude = []
+nested_git = "deny"
+roots = [
+    "crates/bornera",
+    "crates/bornera-core",
+    "crates/bornera-rustls",
+    "crates/bornera-sim",
+]
+submodules = "deny"
+symlinks = "inside"
+workspace_members = "exact"
+
+[[scope]]
+include = ["crates/bornera-core/src/**"]
+name = "core-sans-io-protocol-neutral"
+reason = "Core owns data-only connection policy without transport acquisition or protocol meaning."
+
+[scope.symbols]
+deny = [
+    "calandria_mio",
+    "mio",
+    "tokio",
+    "std::net",
+    "std::process",
+    "std::sync::Mutex",
+    "std::sync::RwLock",
+    "std::thread",
+]
+
+[[scope]]
+include = ["crates/bornera-sim/src/**"]
+name = "simulation-does-not-acquire-production-io"
+reason = "Simulation scripts deterministic capabilities rather than acquiring sockets or selectors."
+
+[scope.symbols]
+deny = [
+    "calandria_mio",
+    "mio",
+    "tokio",
+    "std::net",
+    "std::process",
+    "std::thread",
+]
+
+[[scope]]
+include = ["crates/bornera/src/**"]
+name = "production-remains-native-runtime-neutral"
+reason = "Production privately owns Mio TCP while Calandria remains the sole execution and hosting authority."
+
+[scope.symbols]
+deny = [
+    "tokio",
+    "tower",
+    "std::thread",
+    "std::time::Instant",
+]
+
+[[scope]]
+include = [
+    "crates/bornera-rustls/src/server_config.rs",
+    "crates/bornera-rustls/src/server_io.rs",
+    "crates/bornera-rustls/src/server_session.rs",
+    "crates/bornera-rustls/src/server_status.rs",
+]
+name = "rustls-server-session-is-socket-free"
+reason = "The reusable rustls server session owns protocol state only; its outer runtime retains sockets, clocks, tasks, and readiness."
+
+[scope.symbols]
+deny = [
+    "calandria_mio",
+    "mio",
+    "socket2",
+    "std::net",
+    "std::thread",
+    "std::time::Instant",
+    "tokio",
+]
+
 [source.rust]
-module_docs = "required"
-facades = "declarative"
 entrypoints = "declarative"
+facades = "declarative"
+module_docs = "required"
 tests = "sibling"
+
+[source.rust.hygiene]
+deny_macros = [
+    "panic",
+    "todo",
+    "unimplemented",
+    "unreachable",
+    "dbg",
+]
+deny_methods = [
+    "unwrap",
+    "expect",
+]
+lint_suppressions = "deny"
+unsafe = "deny"
 
 [source.rust.macros]
 mode = "deny-unreviewed"
@@ -136,99 +277,18 @@ reason = "Focused integration tests compare deterministic values and effects."
 name = "matches"
 reason = "State transitions and tests use Rust's standard pattern predicate."
 
-[source.rust.hygiene]
-unsafe = "deny"
-lint_suppressions = "deny"
-deny_methods = ["unwrap", "expect"]
-deny_macros = ["panic", "todo", "unimplemented", "unreachable", "dbg"]
+[source.rust.size.auxiliary]
+hard = 300
+target = 300
 
 [source.rust.size.facade]
-target = 80
 hard = 120
+target = 80
 
 [source.rust.size.implementation]
-target = 240
 hard = 300
+target = 240
 
 [source.rust.size.test]
-target = 300
 hard = 300
-
-[source.rust.size.auxiliary]
 target = 300
-hard = 300
-
-[[layer]]
-name = "core"
-packages = ["bornera-core"]
-may_depend_on = []
-reason = "Deterministic connection policy remains below production and simulation adapters."
-
-[layer.dependencies]
-external = "locked"
-
-[[layer]]
-name = "production"
-packages = ["bornera"]
-may_depend_on = ["core"]
-reason = "The native duty interprets deterministic core policy through Calandria and private Mio capabilities."
-
-[layer.dependencies]
-external = "locked"
-
-[[layer]]
-name = "simulation"
-packages = ["bornera-sim"]
-may_depend_on = ["core", "production"]
-reason = "Deterministic replay drives the production selector-free connection slot through simulated Calandria time and transport capabilities."
-
-[layer.dependencies]
-external = "locked"
-
-[[layer]]
-name = "tls-adapter"
-packages = ["bornera-rustls"]
-may_depend_on = ["core", "production"]
-reason = "The optional TLS adapter implements bounded transport mechanics over the production owner."
-
-[layer.dependencies]
-external = "locked"
-
-[[dependency]]
-name = "core-does-not-depend-outward"
-from = "bornera-core"
-deny = ["bornera", "bornera-rustls", "bornera-sim"]
-reason = "The deterministic core cannot depend on either adapter package."
-
-[[scope]]
-name = "core-sans-io-protocol-neutral"
-include = ["crates/bornera-core/src/**"]
-reason = "Core owns data-only connection policy without transport acquisition or protocol meaning."
-
-[scope.symbols]
-deny = [
-  "calandria_mio",
-  "mio",
-  "tokio",
-  "std::net",
-  "std::process",
-  "std::sync::Mutex",
-  "std::sync::RwLock",
-  "std::thread",
-]
-
-[[scope]]
-name = "simulation-does-not-acquire-production-io"
-include = ["crates/bornera-sim/src/**"]
-reason = "Simulation scripts deterministic capabilities rather than acquiring sockets or selectors."
-
-[scope.symbols]
-deny = ["calandria_mio", "mio", "tokio", "std::net", "std::process", "std::thread"]
-
-[[scope]]
-name = "production-remains-native-runtime-neutral"
-include = ["crates/bornera/src/**"]
-reason = "Production privately owns Mio TCP while Calandria remains the sole execution and hosting authority."
-
-[scope.symbols]
-deny = ["tokio", "tower", "std::thread", "std::time::Instant"]

@@ -20,6 +20,10 @@ The limits relate as follows:
   plaintext bounds. The inbound and protocol categories are caller-audited charges
   for opaque rustls and provider state; they are accounting reservations, not
   allocator controls.
+- `RustlsServerSession::ingest_tls` consumes at most the caller's slice and the
+  configured inbound charge in one call. The session never retains that caller
+  slice; rustls's private encoded-input storage remains covered by the audited
+  inbound charge.
 
 For example, a Kafka driver might start qualification with 16 KiB I/O chunks,
 64 KiB of application-write buffering, 128 KiB each of observable TLS egress and
@@ -62,6 +66,7 @@ certificates where enabled, then record the measured/audited profile.
 
 This release pins rustls 0.23.43 with `ring`, `std`, and `tls12`. TLS 1.2 support
 is intentional for Kafka broker compatibility rather than an accidental result
-of feature unification. The supplied [`rustls::ClientConfig`] still determines
-which compiled protocol versions a connection may negotiate. Downstream consumers
-should record any decision to narrow or change that protocol-version set.
+of feature unification. The supplied [`rustls::ClientConfig`] determines client
+versions, while [`rustls::ServerConfig`] determines server-session versions,
+identity, client authentication, and ALPN policy. Downstream consumers should
+record any decision to narrow or change either protocol-version set.

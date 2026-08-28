@@ -10,7 +10,7 @@ retry policy.
 | --- | --- |
 | `bornera` | Production connection ownership hosted by Calandria |
 | `bornera-core` | Deterministic sans-I/O connection policy |
-| `bornera-rustls` | Bounded rustls client transport for production owners |
+| `bornera-rustls` | Bounded rustls client transport and socket-free server session |
 | `bornera-sim` | Unpublished deterministic bounded trace replay |
 
 The crates begin at the same version and remain lockstepped during pre-alpha.
@@ -76,6 +76,17 @@ the physical capability is released without waiting for a peer.
 For `bornera-rustls`, the connect deadline spans TCP, socket policy, and the TLS
 handshake. `TransportOpened` is published only after the application channel is
 ready and the final handshake flight has left rustls ownership.
+
+The server-session surface owns only `rustls::ServerConnection` state. Its caller
+owns accepted sockets, absolute handshake deadlines, tasks, readiness, and every
+buffer between drained TLS egress and the network. Rustls handshake completion and
+session opening remain distinct: opening latches only after required handshake
+egress has left rustls, and the outer owner must additionally prove its own egress
+has reached the transport before publishing an open connection.
+
+This boundary is socket-free in source, ownership, and operation, but not yet in
+the resolved crate graph: `bornera-rustls` still depends on the production client
+stack. A server-only dependency feature requires a future contract-layer split.
 
 TLS consumers add the adapter and compatible rustls release:
 

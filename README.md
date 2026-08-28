@@ -41,11 +41,12 @@ selector-free policy can also run under deterministic simulation.
 | --- | --- |
 | `bornera` | Shared-selector production ownership for native transports |
 | `bornera-core` | Sans-I/O admission, framing, deadlines, delivery, and recovery policy |
-| `bornera-rustls` | Bounded rustls client transport |
+| `bornera-rustls` | Bounded rustls client transport and socket-free server session |
 | `bornera-sim` | Unpublished deterministic trace replay and generated properties |
 
-The crates remain version-locked during pre-alpha. Use only the layers your
-integration needs.
+The crates remain version-locked during pre-alpha. The rustls server session is
+socket-free in ownership, source, and operation. It is not yet isolated from
+the production client stack in the crate dependency graph.
 
 ## Start
 

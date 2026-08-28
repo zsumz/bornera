@@ -2,7 +2,9 @@
 
 use core::fmt;
 
-use crate::{RustlsConfigError, RustlsConnectError, RustlsTransportLimitsError};
+use crate::{
+    RustlsConfigError, RustlsConnectError, RustlsServerSessionError, RustlsTransportLimitsError,
+};
 
 impl fmt::Display for RustlsTransportLimitsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -52,6 +54,29 @@ impl core::error::Error for RustlsConnectError {
         match self {
             Self::Tls(source) => Some(source),
             Self::Io(source) => Some(source),
+            Self::Capacity { .. } | Self::Transport(_) => None,
+        }
+    }
+}
+
+impl fmt::Display for RustlsServerSessionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Capacity { .. } => {
+                formatter.write_str("rustls server session exceeds the supplied capacity")
+            }
+            Self::Transport(_) => {
+                formatter.write_str("initial rustls server state exceeds its configured bound")
+            }
+            Self::Tls(source) => source.fmt(formatter),
+        }
+    }
+}
+
+impl core::error::Error for RustlsServerSessionError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match self {
+            Self::Tls(source) => Some(source),
             Self::Capacity { .. } | Self::Transport(_) => None,
         }
     }
