@@ -21,7 +21,7 @@ jobs:
       - run: rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
       - run: rustup default 1.88.0
       - run: cargo +stable install zcheck --version 0.0.1 --locked
-      - run: cargo +stable install zrail --version 0.0.2 --locked
+      - run: cargo +stable install zrail --version 0.0.3-rc.4 --locked
       - run: cargo fetch --locked
       - run: zcheck
 
