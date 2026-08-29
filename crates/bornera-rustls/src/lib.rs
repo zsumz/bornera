@@ -1,4 +1,4 @@
-//! Bounded rustls transports and socket-free server sessions for Bornera owners.
+//! Bounded rustls transports and socket-free TLS sessions for Bornera owners.
 //!
 //! The adapter keeps TCP establishment, socket policy, TLS handshake work,
 //! encrypted I/O, and graceful close progression inside Bornera's existing
@@ -12,12 +12,16 @@
 //! [`rustls::ClientConfig`] ownership and operating-system socket buffers remain
 //! outside the per-connection charge.
 //!
-//! [`RustlsServerSession`] applies the same limits to a caller-driven
-//! [`rustls::ServerConnection`]. It owns no socket, readiness source, clock, task,
+//! [`RustlsClientSession`] and [`RustlsServerSession`] apply the same limits to
+//! caller-driven rustls state. They own no socket, readiness source, clock, task,
 //! or runtime: an external connection owner supplies bounded ciphertext slices,
 //! drains bounded TLS output, and decides when those bytes reach its transport.
 #![doc = include_str!("sizing.md")]
 mod application;
+mod client_config;
+mod client_io;
+mod client_session;
+mod client_status;
 mod config;
 mod config_display;
 mod connector;
@@ -33,6 +37,9 @@ mod source;
 mod tls_io;
 mod transport;
 
+pub use client_config::RustlsClientSessionError;
+pub use client_session::RustlsClientSession;
+pub use client_status::RustlsClientStatus;
 pub use config::{
     RustlsConfigError, RustlsConnectError, RustlsTransportConfig, RustlsTransportLimits,
     RustlsTransportLimitsError,

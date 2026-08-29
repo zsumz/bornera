@@ -190,13 +190,17 @@ deny = [
 
 [[scope]]
 include = [
+    "crates/bornera-rustls/src/client_config.rs",
+    "crates/bornera-rustls/src/client_io.rs",
+    "crates/bornera-rustls/src/client_session.rs",
+    "crates/bornera-rustls/src/client_status.rs",
     "crates/bornera-rustls/src/server_config.rs",
     "crates/bornera-rustls/src/server_io.rs",
     "crates/bornera-rustls/src/server_session.rs",
     "crates/bornera-rustls/src/server_status.rs",
 ]
-name = "rustls-server-session-is-socket-free"
-reason = "The reusable rustls server session owns protocol state only; its outer runtime retains sockets, clocks, tasks, and readiness."
+name = "rustls-sessions-are-socket-free"
+reason = "The reusable rustls client and server sessions own protocol state only; their outer runtime retains sockets, clocks, tasks, and readiness."
 
 [scope.symbols]
 deny = [

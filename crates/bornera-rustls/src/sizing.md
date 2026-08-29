@@ -20,10 +20,10 @@ The limits relate as follows:
   plaintext bounds. The inbound and protocol categories are caller-audited charges
   for opaque rustls and provider state; they are accounting reservations, not
   allocator controls.
-- `RustlsServerSession::ingest_tls` consumes at most the caller's slice and the
-  configured inbound charge in one call. The session never retains that caller
-  slice; rustls's private encoded-input storage remains covered by the audited
-  inbound charge.
+- `RustlsClientSession::ingest_tls` and `RustlsServerSession::ingest_tls` consume
+  at most the caller's slice and the configured inbound charge in one call. A
+  session never retains that caller slice; rustls's private encoded-input
+  storage remains covered by the audited inbound charge.
 
 For example, a Kafka driver might start qualification with 16 KiB I/O chunks,
 64 KiB of application-write buffering, 128 KiB each of observable TLS egress and
