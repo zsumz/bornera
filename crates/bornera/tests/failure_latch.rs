@@ -90,7 +90,10 @@ fn fatal_publication_failure_fences_every_normal_owner_api() -> Result<(), Box<d
         .try_recover()
         .map_err(|_| std::io::Error::other("failed owner rejected recovery"))?;
     assert_eq!(report.reason, OwnerFailure::OwnerInvariant);
-    assert!(report.unmatched_writes.is_empty());
+    assert_eq!(
+        report.unmatched_writes,
+        Vec::<bornera_core::DiscardedWrite<OutboundFrame>>::new()
+    );
     release.send(())?;
     join(server)?;
     Ok(())

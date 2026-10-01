@@ -252,8 +252,11 @@ fn runtime_reregistration_pressure_overflow_is_exactly_recoverable() -> Result<(
     assert_eq!(report.operations[0].operation, operation);
     assert_eq!(report.operations[0].delivery, Delivery::NotSent);
     assert_eq!(report.operations[0].frame.as_ref(), Some(&expected_frame));
-    assert!(report.unmatched_writes.is_empty());
-    assert!(report.outcomes.is_empty());
+    assert_eq!(
+        report.unmatched_writes,
+        Vec::<bornera_core::DiscardedWrite<OutboundFrame>>::new()
+    );
+    assert_eq!(report.outcomes, Vec::<bornera::EngineOutcome<()>>::new());
     assert_eq!(
         report.events,
         [

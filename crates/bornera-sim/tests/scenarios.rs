@@ -87,7 +87,10 @@ fn recovery_returns_exact_nonterminal_wire_ownership() -> Result<(), Box<dyn Err
         return Err(std::io::Error::other("expected recovery observation").into());
     };
     assert!(!recovery.ownership_diverged);
-    assert!(recovery.unmatched_writes.is_empty());
+    assert_eq!(
+        recovery.unmatched_writes,
+        Vec::<bornera_core::DiscardedWrite<SimFrame>>::new()
+    );
     assert_eq!(recovery.operations.len(), 1);
     assert_eq!(recovery.operations[0].delivery, Delivery::PossiblySent);
     assert_eq!(

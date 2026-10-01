@@ -97,7 +97,7 @@ fn arbitrary_and_empty_complete_frames_have_no_protocol_minimum() -> Result<(), 
     let empty = owner
         .front_write(NonZeroUsize::MAX)?
         .ok_or_else(|| std::io::Error::other("empty frame was not retained"))?;
-    assert!(empty.bytes.is_empty());
+    assert_eq!(empty.bytes, []);
     let _transition = owner.advance_write(EPOCH, empty.effect, 0)?;
     assert_eq!(owner.queued_write_frames(), 0);
     Ok(())

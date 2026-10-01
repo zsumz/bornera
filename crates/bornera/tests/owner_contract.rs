@@ -125,7 +125,10 @@ fn recovery_retains_terminal_outcomes_and_rejected_lifecycle_edges() -> Result<(
     let report = engine
         .try_recover()
         .map_err(|_| std::io::Error::other("failed owner rejected recovery"))?;
-    assert!(report.operations.is_empty());
+    assert_eq!(
+        report.operations,
+        Vec::<bornera_core::RecoveredOperation<OutboundFrame>>::new()
+    );
     assert_eq!(report.outcomes.len(), 1);
     assert_eq!(report.outcomes[0].operation(), operation);
     assert!(matches!(

@@ -105,7 +105,10 @@ fn reconciliation_journal_preserves_removed_operations_and_frames() -> Result<()
     );
     assert!(recovery.operations[0].frame.is_none());
     assert!(recovery.operations[2].frame.is_none());
-    assert!(recovery.unmatched_writes.is_empty());
+    assert_eq!(
+        recovery.unmatched_writes,
+        Vec::<crate::DiscardedWrite<Frame>>::new()
+    );
     assert_eq!(removed.operation, missing);
     assert_eq!(removed.frame, Frame(Vec::from([3])));
     assert!(recovery.ownership_diverged);
@@ -182,7 +185,10 @@ fn recovery_returns_unmatched_writer_frames_instead_of_dropping_them() -> Result
     ));
 
     let recovery = core.recover();
-    assert!(recovery.operations.is_empty());
+    assert_eq!(
+        recovery.operations,
+        Vec::<crate::RecoveredOperation<Frame>>::new()
+    );
     assert_eq!(recovery.unmatched_writes.len(), 1);
     assert_eq!(recovery.unmatched_writes[0].frame, Frame(Vec::from([7, 8])));
     assert!(recovery.ownership_diverged);
@@ -212,7 +218,10 @@ fn write_progress_without_policy_is_recovery_total() -> Result<(), Box<dyn Error
     );
 
     let recovery = core.recover();
-    assert!(recovery.operations.is_empty());
+    assert_eq!(
+        recovery.operations,
+        Vec::<crate::RecoveredOperation<Frame>>::new()
+    );
     assert_eq!(recovery.unmatched_writes.len(), 1);
     assert_eq!(recovery.unmatched_writes[0].operation, operation);
     assert_eq!(recovery.unmatched_writes[0].written, 1);
@@ -248,7 +257,10 @@ fn completed_write_without_policy_retains_the_exact_frame_for_recovery()
     );
 
     let recovery = core.recover();
-    assert!(recovery.operations.is_empty());
+    assert_eq!(
+        recovery.operations,
+        Vec::<crate::RecoveredOperation<Frame>>::new()
+    );
     assert_eq!(recovery.unmatched_writes.len(), 1);
     assert_eq!(recovery.unmatched_writes[0].operation, operation);
     assert_eq!(recovery.unmatched_writes[0].written, 2);

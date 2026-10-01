@@ -90,10 +90,10 @@ fn partial_writes_cross_one_delivery_boundary_before_opaque_matching() -> Result
     let accepted = harness.commit(TestFrame(Vec::from([1, 2, 3])))?;
 
     let partial = harness.core.advance_write(EPOCH, accepted.effect, 1)?;
-    assert!(partial.effects().is_empty());
+    assert_eq!(partial.effects(), []);
     assert_eq!(harness.core.queued_write_frames(), 1);
     let complete = harness.core.advance_write(EPOCH, accepted.effect, 2)?;
-    assert!(complete.effects().is_empty());
+    assert_eq!(complete.effects(), []);
     assert_eq!(
         harness.core.buffered_write_retained_bytes(),
         RetainedBytes::ZERO

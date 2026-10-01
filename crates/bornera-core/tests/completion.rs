@@ -120,13 +120,13 @@ fn no_reply_operations_before_between_and_after_replies_leave_matching_exact()
         &first,
         Delivery::PossiblySent,
     );
-    assert!(complete(&mut core, &reply_one)?.effects().is_empty());
+    assert_eq!(complete(&mut core, &reply_one)?.effects(), []);
     assert_write_complete(
         &complete(&mut core, &middle)?,
         &middle,
         Delivery::PossiblySent,
     );
-    assert!(complete(&mut core, &reply_two)?.effects().is_empty());
+    assert_eq!(complete(&mut core, &reply_two)?.effects(), []);
     assert_write_complete(&complete(&mut core, &last)?, &last, Delivery::PossiblySent);
 
     assert_eq!(core.matching().pending_operations(), 2);
@@ -177,7 +177,7 @@ fn partial_no_reply_cancellation_releases_silently_when_write_finishes()
     let effect = core
         .write_effect(operation)
         .ok_or_else(|| std::io::Error::other("accepted operation has no write"))?;
-    assert!(core.advance_write(EPOCH, effect, 1)?.effects().is_empty());
+    assert_eq!(core.advance_write(EPOCH, effect, 1)?.effects(), []);
 
     let cancelled = core.apply(ConnectionInput::Cancel {
         epoch: EPOCH,
