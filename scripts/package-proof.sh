@@ -92,7 +92,7 @@ rustls_tls_block="$scratch/rustls.dependency"
 sed -n '/^\[dependencies\.rustls\]$/,/^\[/p' "$rustls_normalized" \
     > "$rustls_tls_block"
 grep -F -x '[dependencies.rustls]' "$rustls_tls_block" > /dev/null
-grep -F -x 'version = "=0.23.43"' "$rustls_tls_block" > /dev/null
+grep -F -x 'version = "=0.23.45"' "$rustls_tls_block" > /dev/null
 if grep -F 'path =' \
     "$rustls_dependency_block" "$rustls_core_block" "$rustls_tls_block" > /dev/null; then
     echo "package proof: normalized bornera-rustls package retained a local path" >&2
@@ -119,4 +119,16 @@ cp "$workspace/Cargo.lock" "$smoke/Cargo.lock"
 cargo metadata --manifest-path "$smoke/Cargo.toml" --offline --format-version 1 > /dev/null
 
 cargo check --manifest-path "$smoke/Cargo.toml" --workspace --all-targets --locked --offline
+# Execute the Kafka-used contracts against extracted packages, not path edges
+# from the source workspace. Repository-only architecture probes stay in CI's
+# source gate because their sibling workspace manifests are not published.
+cargo test --manifest-path "$smoke/Cargo.toml" -p bornera-core \
+    --test reservation --test commit_order --test frame_contract \
+    --test deadline --test completion --locked --offline
+cargo test --manifest-path "$smoke/Cargo.toml" -p bornera \
+    --test kafkars_persona --test kafkars_failures --test owner_contract \
+    --test transport_progress --test connection_set_recovery \
+    --test connection_shutdown --locked --offline
+cargo test --manifest-path "$smoke/Cargo.toml" -p bornera-rustls \
+    --test transport --locked --offline
 echo "package proof: bornera-core $version -> bornera $version -> bornera-rustls $version"

@@ -67,7 +67,7 @@ root = "rustls"
 
 [dependencies.crate_root.source]
 kind = "registry"
-requirement = "=0.23.43"
+requirement = "=0.23.45"
 
 [[dependencies.crate_root]]
 package = "socket2"

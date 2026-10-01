@@ -93,7 +93,7 @@ TLS consumers add the adapter and compatible rustls release:
 ```toml
 [dependencies]
 bornera-rustls = "=0.0.1-rc.3"
-rustls = { version = "=0.23.43", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 ```
 
 ## Integration boundary

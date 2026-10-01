@@ -2,19 +2,19 @@
 schema = 2
 semantics = 3
 producer = "0.0.3-rc.4"
-contract_sha256 = "933e0e555e02919faee8ed5b2b008c7451398e8a51b1372363ee674afd9acdef"
+contract_sha256 = "08879aa83ca46fcdfa9ff079baf6817536289832d95aff91523ad81be42a8393"
 ratchet = []
 
 [analysis]
-inventory_sha256 = "4e1f210ad317cf61c1f3dfed9f9653818aa20d54d4adcf95b652595c5f0717aa"
+inventory_sha256 = "71affffbf98d93b6150de64ad7f331524a26f3cf84e4afb25b3285e050097c1c"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "592812c0c5f0570d5650f3b55a713695772eab410d55aa50f1ab170d8bd776a1"
+cargo_lock_sha256 = "078090ef5ecdc73cb9f8589317c315ea12f285f83b13106d3a1d0363d5c1cc27"
 packages = 4
 targets = 47
 physical_rust_files = 217
 base_source_contexts = 390
 derived_source_contexts = 0
-source_facts = 74172
+source_facts = 74706
 projection_queries = 0
 projected_facts = 0
 unresolved_bindings = 0
@@ -22,7 +22,7 @@ analyzer_semantics = 3
 
 [[analysis.contract_source]]
 path = "zrail.toml"
-sha256 = "8670ad96d341aa03b88d4438b1db9a21b36a46769d6b287820533b1f37918eec"
+sha256 = "47c6ed0bf951b77590472ebc393b96f0a3fd2506057dfa51eb0a603e38b564ef"
 
 [[package]]
 name = "bornera"
@@ -225,7 +225,7 @@ features = [
 
 [package.dependency.source]
 kind = "registry"
-requirement = "=0.23.43"
+requirement = "=0.23.45"
 
 [[package.dependency]]
 alias = "socket2"

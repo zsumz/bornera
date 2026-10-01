@@ -64,7 +64,7 @@ certificates where enabled, then record the measured/audited profile.
 
 ## Rustls feature contract
 
-This release pins rustls 0.23.43 with `ring`, `std`, and `tls12`. TLS 1.2 support
+This release pins rustls 0.23.45 with `ring`, `std`, and `tls12`. TLS 1.2 support
 is intentional for Kafka broker compatibility rather than an accidental result
 of feature unification. The supplied [`rustls::ClientConfig`] determines client
 versions, while [`rustls::ServerConfig`] determines server-session versions,

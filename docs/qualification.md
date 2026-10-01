@@ -14,7 +14,8 @@ The graph covers:
 - formatting, Clippy, and rustdoc with warnings denied;
 - the complete workspace test suite and examples;
 - clean staged and unstaged diffs;
-- package contents and registry-shaped smoke compilation.
+- package contents, registry-shaped compilation, and extracted-package Kafka
+  admission, deadline, completion, recovery, and client TLS personas.
 
 Bornera requires Rust 1.88 or newer.
 
@@ -38,6 +39,8 @@ owner recovery.
 The rustls persona covers handshake read/write alternation, buffered ciphertext,
 local decrypted plaintext, SNI and certificate failures, truncation, graceful
 close, logical buffer ceilings, and connection-local TLS failure isolation.
+It explicitly qualifies TLS 1.2 request/reply and rejects TLS 1.3 handshake
+messages crossing a key-change boundary before transport or admission opens.
 
 These tests do not assign Bornera ownership of DNS, address selection, protocol
 semantics, or reconnect policy.
@@ -52,4 +55,6 @@ bornera-core -> bornera -> bornera-rustls
 ```
 
 Each package must pass the archive-content check and compile from its normalized,
-registry-shaped dependency graph before publication.
+registry-shaped dependency graph before publication. The extracted packages must
+also pass the Kafka-used behavioral tests; repository-only architecture probes
+remain in the source gate because their sibling manifests are not published.
