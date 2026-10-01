@@ -6,15 +6,15 @@ contract_sha256 = "08879aa83ca46fcdfa9ff079baf6817536289832d95aff91523ad81be42a8
 ratchet = []
 
 [analysis]
-inventory_sha256 = "71affffbf98d93b6150de64ad7f331524a26f3cf84e4afb25b3285e050097c1c"
+inventory_sha256 = "b671839a43c6e0c4ea5189f0a813623d0e5f4e5ced010b27da15cdca485d34ab"
 exclusions_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-cargo_lock_sha256 = "078090ef5ecdc73cb9f8589317c315ea12f285f83b13106d3a1d0363d5c1cc27"
+cargo_lock_sha256 = "c7b9b6ab3d421d1631cf1b5f8ecb19485f83b135e12f18f60d4577773b29a7ae"
 packages = 4
 targets = 47
 physical_rust_files = 217
 base_source_contexts = 390
 derived_source_contexts = 0
-source_facts = 74706
+source_facts = 74738
 projection_queries = 0
 projected_facts = 0
 unresolved_bindings = 0
@@ -39,7 +39,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera-core"
-requirement = "=0.0.1-rc.3"
+requirement = "=0.0.1-rc.4"
 
 [[package.dependency]]
 alias = "bytes"
@@ -151,7 +151,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera"
-requirement = "=0.0.1-rc.3"
+requirement = "=0.0.1-rc.4"
 
 [[package.dependency]]
 alias = "bornera-core"
@@ -165,7 +165,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera-core"
-requirement = "=0.0.1-rc.3"
+requirement = "=0.0.1-rc.4"
 
 [[package.dependency]]
 alias = "calandria"
@@ -255,7 +255,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera"
-requirement = "=0.0.1-rc.3"
+requirement = "=0.0.1-rc.4"
 
 [[package.dependency]]
 alias = "bornera-core"
@@ -269,7 +269,7 @@ default_features = true
 [package.dependency.source]
 kind = "workspace-member"
 directory = "crates/bornera-core"
-requirement = "=0.0.1-rc.3"
+requirement = "=0.0.1-rc.4"
 
 [[package.dependency]]
 alias = "calandria"

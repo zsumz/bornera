@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "bornera"
-version = "0.0.1-rc.3"
+version = "0.0.1-rc.4"
 dependencies = [
  "bornera-core",
  "bytes",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[package]]
 name = "bornera-core"
-version = "0.0.1-rc.3"
+version = "0.0.1-rc.4"
 dependencies = [
  "bytebudget",
  "calandria",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "bornera-rustls"
-version = "0.0.1-rc.3"
+version = "0.0.1-rc.4"
 dependencies = [
  "bornera",
  "bornera-core",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "bornera-sim"
-version = "0.0.1-rc.3"
+version = "0.0.1-rc.4"
 dependencies = [
  "bornera",
  "bornera-core",

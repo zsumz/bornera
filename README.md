@@ -52,8 +52,8 @@ the production client stack in the crate dependency graph.
 
 ```toml
 [dependencies]
-bornera = "=0.0.1-rc.3"
-bornera-core = "=0.0.1-rc.3"
+bornera = "=0.0.1-rc.4"
+bornera-core = "=0.0.1-rc.4"
 calandria = { version = "=0.0.1-rc.2", features = ["std"] }
 ```
 
