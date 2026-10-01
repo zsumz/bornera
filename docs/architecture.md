@@ -88,13 +88,11 @@ This boundary is socket-free in source, ownership, and operation, but not yet in
 the resolved crate graph: `bornera-rustls` still depends on the production client
 stack. A server-only dependency feature requires a future contract-layer split.
 
-TLS consumers add the adapter and compatible rustls release:
-
-```toml
-[dependencies]
-bornera-rustls = "=0.0.1-rc.3"
-rustls = { version = "=0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
-```
+The source candidate pins rustls 0.23.45 with `ring`, `std`, and `tls12`.
+Published `bornera-rustls` 0.0.1-rc.3 still pins rustls 0.23.43 and does not
+contain this repair. Do not pair that registry release with the new rustls pin:
+registry adoption requires a qualified follow-up Bornera release and consumer
+dependency and lockfile updates.
 
 ## Integration boundary
 
