@@ -92,6 +92,20 @@ package contents, and packaged-crate smoke compilation. Bornera requires Rust
 1.88 or newer; the full evidence matrix is documented in
 [qualification](https://github.com/zsumz/bornera/blob/main/docs/qualification.md).
 
+## Supported-release boundary
+
+The current candidate does not make a stable-release promise. A future supported
+line must keep the three production crates version-locked and preserve their
+public source API, admission, deadline, completion, delivery-certainty, recovery,
+and Rust 1.88 MSRV contracts across patch releases. Breaking changes require an
+explicitly announced new compatibility line.
+
+The Kafka-used promotion target is bounded client TCP ownership, shared-selector
+progress, and the rustls client adapter. That evidence does not establish a
+server-only dependency graph or assign Bornera protocol retry, DNS, or address
+selection policy. TLS pressure charges remain the audited ownership model in
+the architecture guide, not a total process-RSS or socket-buffer ceiling.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
